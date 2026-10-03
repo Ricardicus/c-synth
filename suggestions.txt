@@ -1,0 +1,215 @@
+FM SOUND STARTING POINTS
+=======================
+
+Run these commands from the project directory after building:
+  cmake --build build
+
+Focus the synth window. Z-M plays the low row, A-L the middle row,
+and Q-P the high row. Hold several keys for chords; Escape quits.
+These are starting points designed for different characters, not exact
+instrument emulations. Adjust depth to taste.
+
+QUICK PICKS
+===========
+
+Clean / mellow: 1, 2, 3, 14
+Bass / low notes: 4, 12, 17, 20
+Keys / plucks / bells: 5, 6, 7, 9, 18
+Waveform leads: 11, 13, 16
+Slow textures / richer chains: 8, 10, 15, 19
+
+All commands are complete patches. Unspecified waveforms are sine,
+unspecified vibrato depth is 0, and unspecified layers have two operators.
+Start with patches 14-20 to explore independent sounds playing together.
+
+CLASSIC TWO-OPERATOR SOUNDS
+==========================
+
+1. Pure sine / reference tone
+   A clean baseline for comparing the other patches. Try low notes first.
+
+   ./build/keyboard_synth --ops 1 --op1-ratio 1
+
+2. Mellow sustained tone
+   Gentle harmonic color. Try slow chords on A-L.
+   Increase --op1-rm from 0.4 toward 1 for more edge.
+
+   ./build/keyboard_synth --ops 2 --op1-ratio 1 --op1-rm 0.4 --op1-i sustain --op2-ratio 1
+
+3. Hollow reed
+   A 2:1 modulator/carrier ratio for a hollow, woody starting point.
+   Try short melodies on A-L; lower rm for a softer sound.
+
+   ./build/keyboard_synth --ops 2 --op1-ratio 2 --op1-rm 1.2 --op1-i sustain --op2-ratio 1
+
+4. Rounded bass
+   The carrier is an octave below the mapped note. A bright onset settles
+   into a gentler sustain. Try Z-M, one note at a time.
+
+   ./build/keyboard_synth --ops 2 --op1-ratio 1 --op1-rm 2.5 --op1-i adsr --op1-i-adsr 0,250,15,100 --op2-ratio 0.5
+
+5. Electric-key style
+   A bright onset that gradually softens, with a modest release tail.
+   Try chords on A-L. Raise sustain from 12 to 30 for more lasting bite.
+
+   ./build/keyboard_synth --ops 2 --op1-ratio 1 --op1-rm 3.5 --op1-i adsr --op1-i-adsr 5,700,12,350 --op2-ratio 1
+
+6. Bright pluck
+   Fast exponential decay of brightness. Try quick notes on A-L or Q-P.
+   Use decay rate 4 instead of 9 for a slower change in timbre.
+
+   ./build/keyboard_synth --ops 2 --op1-ratio 3 --op1-rm 3 --op1-i decay --op1-i-decay 9 --op2-ratio 1
+
+7. Metallic bell
+   A non-integer frequency ratio gives a metallic starting point.
+   Play isolated notes on A-L and release to hear the amplitude tail.
+   Try ratio 1.5 or 2.414 for different metallic colors.
+
+   ./build/keyboard_synth --ops 2 --op1-ratio 1.414 --op1-rm 4 --op1-i adsr --op1-i-adsr 0,2200,0,1400 --op2-ratio 1
+
+LONGER FM CHAINS
+================
+
+8. Slowly opening tone
+   Starts nearly pure, then adds harmonic complexity over 900 ms.
+   Hold a chord on A-L, then release together for a long tail.
+
+   ./build/keyboard_synth --ops 3 --op1-ratio 2 --op1-rm 0.7 --op1-i adsr --op1-i-adsr 900,700,60,1200 --op2-ratio 1 --op2-rm 1.8 --op2-i adsr --op2-i-adsr 900,500,70,1200 --op3-ratio 1
+
+9. Three-operator attack and body
+   OP1 adds a brief burst of complexity to OP2; OP2 keeps a gentler
+   sustained modulation of OP3. Try rhythmic chords on A-L.
+   Set --op1-rm 0 to hear how the initial layer changes the sound.
+
+   ./build/keyboard_synth --ops 3 --op1-ratio 3 --op1-rm 2 --op1-i decay --op1-i-decay 7 --op2-ratio 2 --op2-rm 2.5 --op2-i adsr --op2-i-adsr 5,400,25,300 --op3-ratio 1
+
+10. Four-operator metallic texture
+    A more complex chain with separate decay speeds and an inharmonic
+    middle operator. Try single low notes before layering chords.
+    Lower --op2-rm or --op3-rm for a less dense result.
+
+    ./build/keyboard_synth --ops 4 --op1-ratio 3 --op1-rm 1.5 --op1-i decay --op1-i-decay 5 --op2-ratio 1.414 --op2-rm 1.2 --op2-i decay --op2-i-decay 2 --op3-ratio 2 --op3-rm 2 --op3-i adsr --op3-i-adsr 10,1200,20,900 --op4-ratio 1
+
+WAVEFORM LEADS AND BASS
+======================
+
+11. Square lead with vibrato
+    A standalone square wave with a small pitch wobble. Try A-L melodies.
+
+    ./build/keyboard_synth --ops 1 --op1-waveform square --op1-vibrato-rate 6 --op1-vibrato-depth 14
+
+12. Triangle into saw bass
+    Triangle modulation adds motion to a saw carrier pitched down an octave.
+    Try Z-M. Reduce depth from 0.8 toward 0 for a steadier saw tone.
+
+    ./build/keyboard_synth --ops 2 --op1-waveform triangle --op1-ratio 1 --op1-rm 0.8 --op1-i adsr --op1-i-adsr 0,180,20,100 --op2-waveform sawtooth --op2-ratio 0.5
+
+13. Narrow pulse
+    A standalone pulse with a 20% high duty cycle. Try widths 0.35 and 0.5
+    to compare its color. Width 0.5 is the square waveform.
+
+    ./build/keyboard_synth --ops 1 --op1-waveform pulse --op1-pulse-width 0.2 --op1-vibrato-rate 5 --op1-vibrato-depth 8
+
+INDEPENDENT SOUND LAYERS
+========================
+
+14. Layered soft tone
+    A gently vibrating sine plays alongside a detuned triangle FM layer.
+    Hold chords on A-L. Set layer 2 gain to 0 to hear just the first layer.
+
+    ./build/keyboard_synth --layers 2 --ops 1 --op1-waveform sine --op1-vibrato-rate 5 --op1-vibrato-depth 10 --layer2-ops 2 --layer2-op1-ratio 2 --layer2-op1-rm 0.8 --layer2-op2-waveform triangle --layer2-detune 7 --layer2-gain 0.7
+
+15. Two contrasting FM chains
+    A three-operator upper layer plus a quieter, lower triangle layer.
+    Separate envelopes and slight detuning give the layers different motion.
+    Try single low notes first, then short chords.
+
+    ./build/keyboard_synth --layers 2 --ops 3 --op1-ratio 3 --op1-rm 1 --op1-i decay --op1-i-decay 6 --op2-waveform triangle --op2-ratio 2 --op2-rm 1.2 --op2-i adsr --op2-i-adsr 10,500,25,450 --op3-vibrato-depth 12 --layer2-ops 2 --layer2-op1-waveform square --layer2-op1-rm 0.4 --layer2-op1-i decay --layer2-op1-i-decay 4 --layer2-op2-waveform triangle --layer2-op2-ratio 0.5 --layer2-detune -5 --layer2-gain 0.5
+
+16. Detuned saw pair
+    Two saw oscillators without FM, detuned in opposite directions.
+    Try held A-L chords and compare the slow beating with the faster vibrato.
+    Lower both vibrato depths to 0 to hear detuning by itself.
+
+    ./build/keyboard_synth --layers 2 --ops 1 --op1-waveform saw --layer1-detune -6 --op1-vibrato-rate 4.8 --op1-vibrato-depth 5 --layer2-ops 1 --layer2-op1-waveform saw --layer2-detune 6 --layer2-op1-vibrato-rate 5.2 --layer2-op1-vibrato-depth 5
+
+17. Sub bass plus an FM edge
+    A pure sine an octave down supplies the body; a quieter saw FM layer
+    adds a changing edge at the mapped pitch. Try short Z-M notes.
+    On release, the sine stops quickly while the FM layer keeps its own tail.
+
+    ./build/keyboard_synth --layers 2 --ops 1 --op1-waveform sine --op1-ratio 0.5 --layer2-ops 2 --layer2-gain 0.45 --layer2-op1-waveform square --layer2-op1-ratio 2 --layer2-op1-rm 0.4 --layer2-op1-i adsr --layer2-op1-i-adsr 0,200,20,250 --layer2-op2-waveform saw --layer2-op2-vibrato-rate 5 --layer2-op2-vibrato-depth 5
+
+18. Two metallic bell colors
+    Two inharmonic FM ratios and different envelope timings combine into
+    a denser bell starting point. Tap A-L keys, then release to hear the tail.
+    Mute layer 2 to compare the first bell with the combined patch.
+
+    ./build/keyboard_synth --layers 2 --ops 2 --op1-ratio 1.414 --op1-rm 3 --op1-i adsr --op1-i-adsr 0,1800,0,1500 --layer2-ops 2 --layer2-gain 0.6 --layer2-detune 4 --layer2-op1-ratio 2.414 --layer2-op1-rm 1.5 --layer2-op1-i adsr --layer2-op1-i-adsr 0,900,0,700
+
+19. Three-layer evolving chord
+    Triangle FM, a longer sine FM chain, and a quiet sine an octave above.
+    Slow depth attacks change the color while different vibrato rates add
+    movement. Hold a chord for several seconds; watch the bands bend and grow.
+    The upper sine releases quickly; the two FM layers have longer tails.
+
+    ./build/keyboard_synth --layers 3 --ops 2 --op1-waveform triangle --op1-rm 0.3 --op1-i adsr --op1-i-adsr 600,900,70,1600 --op2-waveform triangle --op2-vibrato-rate 4.5 --op2-vibrato-depth 7 --layer2-ops 3 --layer2-gain 0.7 --layer2-detune -5 --layer2-op1-waveform triangle --layer2-op1-ratio 2 --layer2-op1-rm 0.4 --layer2-op1-i decay --layer2-op1-i-decay 0.7 --layer2-op2-rm 1 --layer2-op2-i adsr --layer2-op2-i-adsr 1200,500,60,2000 --layer2-op3-vibrato-rate 6 --layer2-op3-vibrato-depth 8 --layer3-ops 1 --layer3-gain 0.3 --layer3-detune 7 --layer3-op1-ratio 2 --layer3-op1-vibrato-rate 5.5 --layer3-op1-vibrato-depth 12
+
+20. Low growl with a pulse accent
+    A saw-to-triangle-to-sine FM chain pitched down an octave, plus a quieter
+    pulse carrier with a short burst of square modulation. Try Z-M single notes.
+    Reduce --op2-rm for a smoother body, or increase layer 2 gain for more accent.
+
+    ./build/keyboard_synth --layers 2 --ops 3 --op1-waveform saw --op1-ratio 1.5 --op1-rm 0.35 --op1-i decay --op1-i-decay 3 --op2-waveform triangle --op2-rm 2 --op2-i adsr --op2-i-adsr 0,300,45,180 --op3-ratio 0.5 --op3-vibrato-rate 4 --op3-vibrato-depth 6 --layer2-ops 2 --layer2-gain 0.25 --layer2-detune -3 --layer2-op1-waveform square --layer2-op1-ratio 2 --layer2-op1-rm 0.4 --layer2-op1-i adsr --layer2-op1-i-adsr 0,80,0,120 --layer2-op2-waveform pulse --layer2-op2-pulse-width 0.4
+
+TWEAKING GUIDE
+==============
+
+- --opN-ratio sets that operator's frequency relative to the played note.
+  The final operator sets the output carrier pitch. A final ratio of 0.5
+  moves it down an octave; 2 moves it up an octave.
+- --opN-rm controls depth from OP N into OP N+1. Start small and increase.
+  Setting a link's depth to 0 disconnects the upstream modulation at that
+  link; downstream operators still run and may modulate each other.
+- --opN-waveform selects sine, square, triangle, sawtooth (or saw), or pulse.
+  Every modulator and carrier can use a different waveform. Pulse width is
+  set by --opN-pulse-width, strictly between 0 and 1. Its default is 0.25.
+- --opN-vibrato-rate is in Hz; --opN-vibrato-depth is the peak pitch offset
+  in cents. Depth 0 turns vibrato off. Try rates 4-7 Hz and depths 5-25 cents.
+  The default rate is 5 Hz; changing depth alone enables vibrato.
+- --layers sets how many independent sounds play for each held key.
+  --layerL-ops selects that layer's FM chain size. Use --layerL-opN-*
+  for its operator settings, e.g. --layer2-op1-waveform triangle.
+  Existing unprefixed options configure layer 1.
+- --layerL-gain sets a layer's mix gain, 0-1. --layerL-detune shifts its
+  pitch in cents; +/- 5-10 cents gives a useful starting point for beating.
+  Outputs are normalized by layer count, and each layer has its own release.
+- --rm sets all layer 1 modulator depths. Put it before individual --opN-rm
+  overrides, since the last depth setting for each operator wins.
+  --layerL-rm does the same for layer L.
+- --opN-i-decay is a rate per second: larger means faster. It needs
+  --opN-i decay to select the exponential decay mode.
+- --opN-i-adsr values are attack ms, decay ms, sustain percent, release ms.
+  They need --opN-i adsr. Sustain is a percentage of that operator's rm.
+- These envelopes control modulation depth, not output loudness.
+  A depth envelope reaching 0 leaves a simpler tone while a key is held.
+  Release the key to fade the output; ADSR patches use the longest
+  modulator release, with a minimum 5 ms amplitude fade.
+- Strong depth or high ratios on the high keyboard row can produce
+  aliasing. Lower the depth, ratio, or played octave for a cleaner result.
+  These direct square, saw, and pulse waveforms also have high harmonics.
+  An unequal-duty pulse modulator contains DC and can shift carrier pitch.
+- The SDL window's spectrogram shows the sum of all layers and held notes.
+  Use it to compare harmonic structure, vibrato, and changing depth.
+
+COMPARING PATCHES
+=================
+
+1. Play the same key or chord in each patch; A is C4 and Z is C3.
+2. On a layered patch, set one layer's gain to 0 to hear the others.
+   The layer count still controls normalization, so muting can sound quieter.
+3. Set vibrato depth to 0 before comparing waveform or depth changes.
+4. Watch the spectrogram: steady horizontal bands show sustained components;
+   vibrato bends the bands, and depth envelopes change their relative strength.
+5. Change one parameter at a time. A useful sequence is waveform, frequency
+   ratio, modulation depth, envelope, then layer balance and detuning.
