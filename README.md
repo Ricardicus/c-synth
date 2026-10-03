@@ -7,10 +7,10 @@ frequency; the final operator supplies that layer's audio output.
 Waveforms and vibrato are configurable per operator. Defaults are one
 layer, two sine operators, and vibrato off.
 
-Install CMake, a C compiler, and SDL2 development files. On macOS with Homebrew:
+Install CMake, a C compiler, SDL2 and FreeType development files. On macOS with Homebrew:
 
 ```sh
-brew install cmake sdl2
+brew install cmake sdl2 freetype
 ```
 
 Build and run:
@@ -46,6 +46,15 @@ available modes. The final operator is the output carrier: its FM depth and
 index envelope are unused. Operator envelopes control FM timbre. The four **Master Output ADSR** knobs
 below the spectrogram control the combined layers' volume for each note: attack
 and decay in milliseconds, sustain in percent, and release in milliseconds.
+Open **FM equations** or **Output ADSR** beside the preset dropdown for dedicated
+views with large, smooth text and raw functions. Equations substitute the
+configured waveform (`sin`, `triangle`, `pulse`, etc.) and numeric settings
+formatted to two decimal places. Frequencies follow the most recently played
+note (440 Hz before playing); long chains can be scrolled with the mouse wheel. **Back to sound** or Escape returns to the controls; keyboard notes
+still play while viewing equations. The window supports HiDPI rendering and
+has a minimum size to keep the text readable. Fonts use FreeType and a system
+monospace font (Menlo, DejaVu Sans Mono, Liberation Mono, or Consolas); set
+`SYNTH_FONT` to a TTF/TTC path to choose another font.
 Master edits affect sounding notes; each note has its own envelope so chords
 retain independent articulation. Presets include their output envelope settings.
 

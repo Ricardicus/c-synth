@@ -59,7 +59,9 @@ int main(int argc, char *argv[])
     SDL_Window *window = SDL_CreateWindow(
         "FM synth | Z-M: C3-B3 | A-L: C4-D5 | Q-P: C5-E6 | Esc quits",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1640, 780,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    if (window != NULL)
+        SDL_SetWindowMinimumSize(window, 1230, 585);
     if (window == NULL || synthInitWithLayers(&config) != 0) {
         fprintf(stderr, "Synth startup failed: %s\n", SDL_GetError());
         if (window != NULL)
@@ -126,6 +128,7 @@ int main(int argc, char *argv[])
                         int note = noteForKey(event.key.keysym.sym);
                         SDL_Scancode key = event.key.keysym.scancode;
                         if (note >= 0 && heldKeyNotes[key] == 0) {
+                            spectrogramNote(view, note);
                             heldKeyNotes[key] = note + 1;
                             if (noteHolds[note]++ == 0)
                                 registerNote(note);

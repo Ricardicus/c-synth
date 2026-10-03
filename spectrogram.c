@@ -2,7 +2,8 @@
 #include "spectrum.h"
 #include "synth.h"
 
-#include <ctype.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +19,10 @@ _Static_assert(SPECTRUM_SIZE == SYNTH_ANALYSIS_SAMPLES, "Snapshot must fit FFT")
 
 struct Spectrogram {
     SDL_Window *window;
+    SDL_Texture *font;
+    int equationPage;
+    int equationScroll;
+    double equationFrequency;
     SynthConfig config;
     int selectedLayer;
     int selectedOperator;
@@ -37,45 +42,69 @@ struct Spectrogram {
     uint64_t lastPosition;
 };
 
-/* Tiny built-in uppercase font, keeping SDL_ttf out of the scaffold. */
-static void text(SDL_Renderer *renderer, int x, int y, const char *value)
+/* Rasterize at twice the displayed size for smooth text on HiDPI displays. */
+static SDL_Texture *createFont(SDL_Renderer *renderer)
 {
-    static const Uint8 glyphs[36][5] = {
-        {0x3e,0x51,0x49,0x45,0x3e},{0x00,0x42,0x7f,0x40,0x00},
-        {0x42,0x61,0x51,0x49,0x46},{0x21,0x41,0x45,0x4b,0x31},
-        {0x18,0x14,0x12,0x7f,0x10},{0x27,0x45,0x45,0x45,0x39},
-        {0x3c,0x4a,0x49,0x49,0x30},{0x01,0x71,0x09,0x05,0x03},
-        {0x36,0x49,0x49,0x49,0x36},{0x06,0x49,0x49,0x29,0x1e},
-        {0x7e,0x11,0x11,0x11,0x7e},{0x7f,0x49,0x49,0x49,0x36},
-        {0x3e,0x41,0x41,0x41,0x22},{0x7f,0x41,0x41,0x22,0x1c},
-        {0x7f,0x49,0x49,0x49,0x41},{0x7f,0x09,0x09,0x09,0x01},
-        {0x3e,0x41,0x49,0x49,0x7a},{0x7f,0x08,0x08,0x08,0x7f},
-        {0x00,0x41,0x7f,0x41,0x00},{0x20,0x40,0x41,0x3f,0x01},
-        {0x7f,0x08,0x14,0x22,0x41},{0x7f,0x40,0x40,0x40,0x40},
-        {0x7f,0x02,0x0c,0x02,0x7f},{0x7f,0x04,0x08,0x10,0x7f},
-        {0x3e,0x41,0x41,0x41,0x3e},{0x7f,0x09,0x09,0x09,0x06},
-        {0x3e,0x41,0x51,0x21,0x5e},{0x7f,0x09,0x19,0x29,0x46},
-        {0x46,0x49,0x49,0x49,0x31},{0x01,0x01,0x7f,0x01,0x01},
-        {0x3f,0x40,0x40,0x40,0x3f},{0x1f,0x20,0x40,0x20,0x1f},
-        {0x3f,0x40,0x38,0x40,0x3f},{0x63,0x14,0x08,0x14,0x63},
-        {0x07,0x08,0x70,0x08,0x07},{0x61,0x51,0x49,0x45,0x43}
+    FT_Library library;
+    FT_Face face = NULL;
+    if (FT_Init_FreeType(&library)) { SDL_SetError("Cannot initialize FreeType"); return NULL; }
+    const char *paths[] = {
+        getenv("SYNTH_FONT"), "/System/Library/Fonts/Menlo.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf",
+        "C:/Windows/Fonts/consola.ttf"
     };
-    for (; *value; ++value, x += 12) {
-        int ch = toupper((unsigned char)*value);
-        int index = ch >= '0' && ch <= '9' ? ch - '0' :
-                    ch >= 'A' && ch <= 'Z' ? ch - 'A' + 10 : -1;
-        for (int col = 0; col < 5; ++col) {
-            Uint8 bits = index >= 0 ? glyphs[index][col] :
-                         ch == '.' ? (Uint8)(col == 2 ? 0x60 : 0) : ch == '+' ? (Uint8)(col == 2 ? 0x3e : 0x08) : ch == '-' ? 0x08 : ch == '>' ?
-                         (Uint8)(col == 2 ? 0x08 : col == 1 ? 0x14 : col == 0 ? 0x22 : 0) : 0;
-            for (int row = 0; row < 7; ++row) {
-                if (bits & (1 << row)) {
-                    SDL_Rect pixel = {x + col * 2, y + row * 2, 2, 2};
-                    SDL_RenderFillRect(renderer, &pixel);
-                }
+    for (unsigned int i = 0; i < sizeof(paths) / sizeof(paths[0]); ++i)
+        if (paths[i] && FT_New_Face(library, paths[i], 0, &face) == 0) break;
+    if (!face) { FT_Done_FreeType(library); SDL_SetError("No monospace font found; set SYNTH_FONT to a TTF file"); return NULL; }
+    SDL_Surface *atlas = SDL_CreateRGBSurfaceWithFormat(0, 384, 288, 32, SDL_PIXELFORMAT_ARGB8888);
+    if (!atlas) { FT_Done_Face(face); FT_Done_FreeType(library); return NULL; }
+    SDL_FillRect(atlas, NULL, 0);
+    FT_Set_Pixel_Sizes(face, 0, 40);
+    for (int ch = 32; ch < 127; ++ch) {
+        if (FT_Load_Char(face, (FT_ULong)ch, FT_LOAD_RENDER)) continue;
+        FT_GlyphSlot g = face->glyph;
+        int ax = ((ch - 32) % 16) * 24, ay = ((ch - 32) / 16) * 48;
+        for (unsigned int y = 0; y < g->bitmap.rows; ++y) {
+            for (unsigned int x = 0; x < g->bitmap.width; ++x) {
+                int dx = g->bitmap_left + (int)x, dy = 38 - g->bitmap_top + (int)y;
+                if (dx < 0 || dx >= 24 || dy < 0 || dy >= 48) continue;
+                Uint8 alpha = g->bitmap.buffer[(int)y * g->bitmap.pitch + x];
+                Uint32 *row = (Uint32 *)((Uint8 *)atlas->pixels + (ay + dy) * atlas->pitch);
+                row[ax + dx] = ((Uint32)alpha << 24) | 0x00ffffff;
             }
         }
     }
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, atlas);
+    if (texture) {
+        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear);
+    }
+    SDL_FreeSurface(atlas);
+    FT_Done_Face(face);
+    FT_Done_FreeType(library);
+    return texture;
+}
+
+static void textScaled(Spectrogram *view, int x, int y, const char *value, int scale)
+{
+    Uint8 red, green, blue, alpha;
+    SDL_GetRenderDrawColor(view->renderer, &red, &green, &blue, &alpha);
+    SDL_SetTextureColorMod(view->font, red, green, blue);
+    SDL_SetTextureAlphaMod(view->font, alpha);
+    int width = scale == 3 ? 18 : 12, height = scale == 3 ? 36 : 24;
+    for (; *value; ++value, x += width) {
+        unsigned char ch = (unsigned char)*value;
+        if (ch < 32 || ch > 126) ch = '?';
+        SDL_Rect src = {((ch - 32) % 16) * 24, ((ch - 32) / 16) * 48, 24, 48};
+        SDL_Rect dst = {x, y, width, height};
+        SDL_RenderCopy(view->renderer, view->font, &src, &dst);
+    }
+}
+
+static void text(Spectrogram *view, int x, int y, const char *value)
+{
+    textScaled(view, x, y, value, 2);
 }
 
 static Uint32 color(double db)
@@ -107,12 +136,15 @@ Spectrogram *spectrogramCreate(SDL_Window *window, int layerCount)
     view->config = synthDefaultConfig();
     view->preset = -1;
     view->dragRow = -1;
+    view->equationFrequency = 440.0;
     view->layerCount = layerCount;
     view->renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (view->renderer == NULL)
         view->renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     if (view->renderer == NULL || SDL_RenderSetLogicalSize(view->renderer, 1640, 780) != 0)
         goto failure;
+    view->font = createFont(view->renderer);
+    if (!view->font) goto failure;
     view->texture = SDL_CreateTexture(view->renderer, SDL_PIXELFORMAT_ARGB8888,
                                      SDL_TEXTUREACCESS_STREAMING, PLOT_W, PLOT_H);
     if (view->texture == NULL)
@@ -135,6 +167,7 @@ failure:
 }
 
 static void drawControls(Spectrogram *view);
+static void drawEquations(Spectrogram *view);
 
 int spectrogramDraw(Spectrogram *view)
 {
@@ -178,6 +211,11 @@ int spectrogramDraw(Spectrogram *view)
     SDL_SetRenderDrawColor(renderer, 12, 16, 26, 255);
     if (SDL_RenderClear(renderer) != 0)
         return -1;
+    if (view->equationPage) {
+        drawEquations(view);
+        SDL_RenderPresent(renderer);
+        return 0;
+    }
     SDL_Rect source = {view->cursor, 0, PLOT_W - view->cursor, PLOT_H};
     SDL_Rect target = {PLOT_X, PLOT_Y, source.w, PLOT_H};
     if (SDL_RenderCopy(renderer, view->texture, &source, &target) != 0)
@@ -189,10 +227,10 @@ int spectrogramDraw(Spectrogram *view)
             return -1;
     }
     SDL_SetRenderDrawColor(renderer, 190, 204, 222, 255);
-    text(renderer, PLOT_X, 20, "LIVE OUTPUT SPECTROGRAM");
+    text(view, PLOT_X, 20, "LIVE OUTPUT SPECTROGRAM");
     char status[80];
     snprintf(status, sizeof(status), "%d LAYERS   %d HZ   FREQUENCY UP", view->layerCount, sampleRate);
-    text(renderer, PLOT_X, 45, status);
+    text(view, PLOT_X, 45, status);
     const int ticks[] = {40,100,200,500,1000,2000,5000,10000,20000};
     for (unsigned int i = 0; i < sizeof(ticks) / sizeof(ticks[0]); ++i) {
         if (ticks[i] > maxHz)
@@ -201,20 +239,20 @@ int spectrogramDraw(Spectrogram *view)
         char label[16];
         snprintf(label, sizeof(label), "%d", ticks[i]);
         SDL_SetRenderDrawColor(renderer, 145, 159, 182, 255);
-        text(renderer, 8, y - 7, label);
+        text(view, 8, y - 12, label);
         SDL_RenderDrawLine(renderer, PLOT_X - 5, y, PLOT_X - 1, y);
     }
     SDL_SetRenderDrawColor(renderer, 190, 204, 222, 255);
-    text(renderer, PLOT_X, 508, "TIME   OLDER > NEWER");
+    text(view, PLOT_X, 508, "TIME   OLDER > NEWER");
     for (int i = 0; i < 220; ++i) {
         Uint32 rgb = color(-80.0 + 80.0 * i / 219);
         SDL_SetRenderDrawColor(renderer, (Uint8)(rgb >> 16), (Uint8)(rgb >> 8), (Uint8)rgb, 255);
         SDL_RenderDrawLine(renderer, 700 + i, 510, 700 + i, 524);
     }
     SDL_SetRenderDrawColor(renderer, 190, 204, 222, 255);
-    text(renderer, 620, 510, "-80 DB");
-    text(renderer, 932, 510, "0 DB");
-    text(renderer, PLOT_X, 550, "LOW Z-M   MID A-L   HIGH Q-P   ESC QUITS");
+    text(view, 620, 510, "-80 DB");
+    text(view, 932, 510, "0 DB");
+    text(view, PLOT_X, 550, "LOW Z-M   MID A-L   HIGH Q-P   ESC QUITS");
     drawControls(view);
     SDL_RenderPresent(renderer);
     return 0;
@@ -226,6 +264,8 @@ void spectrogramDestroy(Spectrogram *view)
         return;
     if (view->texture != NULL)
         SDL_DestroyTexture(view->texture);
+    if (view->font != NULL)
+        SDL_DestroyTexture(view->font);
     if (view->renderer != NULL)
         SDL_DestroyRenderer(view->renderer);
     free(view);
@@ -339,12 +379,13 @@ static int changeRow(Spectrogram *view, int row, double direction)
     return 0;
 }
 
-static void button(SDL_Renderer *r, SDL_Rect rect, const char *label, bool active)
+static void button(Spectrogram *view, SDL_Rect rect, const char *label, bool active)
 {
+    SDL_Renderer *r = view->renderer;
     SDL_SetRenderDrawColor(r, active ? 39 : 30, active ? 104 : 42, active ? 126 : 60, 255);
     SDL_RenderFillRect(r, &rect);
     SDL_SetRenderDrawColor(r, 220, 232, 245, 255);
-    text(r, rect.x + 8, rect.y + 6, label);
+    text(view, rect.x + 8, rect.y + 1, label);
 }
 
 static SDL_Rect knobRect(int index)
@@ -355,7 +396,7 @@ static SDL_Rect knobRect(int index)
 
 static SDL_Rect selectorRect(int index)
 {
-    return (SDL_Rect){PANEL_X + (index % 2) * 300, 92 + (index / 2) * 52, 280, 44};
+    return (SDL_Rect){PANEL_X + (index % 2) * 300, 86 + (index / 2) * 54, 280, 50};
 }
 
 static bool inside(int x, int y, SDL_Rect rect)
@@ -387,7 +428,7 @@ static void drawKnob(Spectrogram *view, int index)
         position = log1p(position * 99) / log(100);
     int cx = rect.x + rect.w / 2, cy = rect.y + 52;
     SDL_SetRenderDrawColor(r, 180, 199, 219, 255);
-    text(r, rect.x + (rect.w - (int)strlen(rowNames[row]) * 12) / 2, rect.y, rowNames[row]);
+    text(view, rect.x + (rect.w - (int)strlen(rowNames[row]) * 12) / 2, rect.y, rowNames[row]);
     SDL_SetRenderDrawColor(r, 44, 61, 80, 255);
     circle(r, cx, cy, 29);
     SDL_SetRenderDrawColor(r, view->dragRow == row ? 57 : 29, view->dragRow == row ? 160 : 99, 126, 255);
@@ -395,39 +436,178 @@ static void drawKnob(Spectrogram *view, int index)
     double angle = (135 + position * 270) * 3.141592653589793 / 180;
     SDL_SetRenderDrawColor(r, 231, 241, 252, 255);
     SDL_RenderDrawLine(r, cx, cy, cx + (int)(cos(angle) * 21), cy + (int)(sin(angle) * 21));
-    text(r, rect.x + (rect.w - (int)strlen(value) * 12) / 2, rect.y + 88, value);
+    text(view, rect.x + (rect.w - (int)strlen(value) * 12) / 2, rect.y + 84, value);
+}
+
+static const SDL_Rect fmPageButton = {550, 605, 205, 38};
+static const SDL_Rect adsrPageButton = {775, 605, 205, 38};
+static const SDL_Rect soundPageButton = {80, 20, 225, 42};
+
+typedef struct {
+    int count;
+    char lines[256][512];
+} EquationLines;
+
+static void addEquation(EquationLines *lines, const char *value)
+{
+    /* Wrap at operators rather than reducing the font size. */
+    while (*value && lines->count < 256) {
+        size_t length = strlen(value), take = length;
+        if (take > 118) {
+            take = 118;
+            while (take > 60 && value[take] != ' ') --take;
+        }
+        snprintf(lines->lines[lines->count++], 512, "%.*s", (int)take, value);
+        value += take;
+        while (*value == ' ') ++value;
+    }
+}
+
+static void waveformFunction(const FmOperatorConfig *op, int layer, int index,
+                             char *value, size_t size)
+{
+    const char *name = op->waveform == WAVE_SINE ? "sin" : oscillatorWaveformName(op->waveform);
+    if (op->waveform == WAVE_PULSE)
+        snprintf(value, size, "pulse(p%d_%d(t), %.2f)", layer, index, op->pulseWidth);
+    else
+        snprintf(value, size, "%s(p%d_%d(t))", name, layer, index);
+}
+
+static void fmFunctions(const Spectrogram *view, EquationLines *lines)
+{
+    char line[512], wave[80], previousWave[80], index[120], vibrato[120];
+    snprintf(line, sizeof(line), "x(t) = (0.10 / %.2f) * (", (double)view->config.layerCount);
+    addEquation(lines, line);
+    for (int l = 0; l < view->config.layerCount; ++l) {
+        const SynthLayerConfig *layer = &view->config.layers[l];
+        waveformFunction(&layer->fm.operators[layer->fm.operatorCount - 1], l + 1,
+                         layer->fm.operatorCount, wave, sizeof(wave));
+        snprintf(line, sizeof(line), "    %s%.2f * %s", l ? "+ " : "", layer->gain, wave);
+        addEquation(lines, line);
+    }
+    addEquation(lines, ")");
+    for (int l = 0; l < view->config.layerCount; ++l) {
+        const SynthLayerConfig *layer = &view->config.layers[l];
+        double base = view->equationFrequency * exp2(layer->detuneCents / 1200.0);
+        addEquation(lines, " ");
+        for (int k = 0; k < layer->fm.operatorCount; ++k) {
+            const FmOperatorConfig *op = &layer->fm.operators[k];
+            double frequency = base * op->ratio;
+            if (k == 0 || layer->fm.operators[k - 1].rm == 0) {
+                snprintf(line, sizeof(line), "p%d_%d'(t) = 2.00*pi * (%.2f)", l + 1, k + 1, frequency);
+            } else {
+                const FmOperatorConfig *prev = &layer->fm.operators[k - 1];
+                waveformFunction(prev, l + 1, k, previousWave, sizeof(previousWave));
+                if (prev->indexMode == FM_INDEX_DECAY)
+                    snprintf(index, sizeof(index), "exp(-%.2f*t)", prev->decayRate);
+                else if (prev->indexMode == FM_INDEX_ADSR)
+                    snprintf(index, sizeof(index), "adsr(1000.00*t, %.2f, %.2f, %.2f, %.2f)",
+                             (double)prev->attackMs, (double)prev->decayMs,
+                             prev->sustainPercent / 100.0, (double)prev->releaseMs);
+                else
+                    snprintf(index, sizeof(index), "1.00");
+                snprintf(line, sizeof(line), "p%d_%d'(t) = 2.00*pi * (%.2f + %.2f * %s * %s)",
+                         l + 1, k + 1, frequency, prev->rm * base * prev->ratio, index, previousWave);
+            }
+            if (op->vibratoDepthCents > 0) {
+                snprintf(vibrato, sizeof(vibrato), " * 2.00^(%.2f*sin(2.00*pi*%.2f*t)/1200.00)",
+                         op->vibratoDepthCents, op->vibratoRateHz);
+                size_t used = strlen(line);
+                snprintf(line + used, sizeof(line) - used, "%s", vibrato);
+            }
+            addEquation(lines, line);
+        }
+    }
+}
+
+static void outputFunctions(const Spectrogram *view, EquationLines *lines)
+{
+    const SynthEnvelopeConfig *env = &view->config.outputEnvelope;
+    double a = env->attackMs, d = env->decayMs, s = env->sustainPercent / 100.0, r = env->releaseMs;
+    char line[512];
+    addEquation(lines, "y(t) = e(1000.00*t) * x(t)");
+    addEquation(lines, " ");
+    addEquation(lines, "e(t) = {");
+    if (a > 0) {
+        snprintf(line, sizeof(line), "    t / %.2f,                         0.00 <= t < %.2f, t < t_r", a, a);
+        addEquation(lines, line);
+    }
+    if (d > 0) {
+        snprintf(line, sizeof(line), "    1.00 - %.2f*(t-%.2f)/%.2f,       %.2f <= t < %.2f, t < t_r",
+                 1 - s, a, d, a, a + d);
+        addEquation(lines, line);
+    }
+    snprintf(line, sizeof(line), "    %.2f,                             %.2f <= t < t_r", s, a + d);
+    addEquation(lines, line);
+    if (r > 0) {
+        snprintf(line, sizeof(line), "    e(t_r-)*(1.00-(t-t_r)/%.2f),       t_r <= t < t_r+%.2f", r, r);
+        addEquation(lines, line);
+    }
+    addEquation(lines, "    0.00,                             otherwise");
+    addEquation(lines, "}");
+}
+
+static void drawEquations(Spectrogram *view)
+{
+    button(view, soundPageButton, "Back to sound", false);
+    button(view, (SDL_Rect){340, 20, 225, 42}, "FM equations", view->equationPage == 1);
+    button(view, (SDL_Rect){600, 20, 225, 42}, "Output ADSR", view->equationPage == 2);
+    EquationLines lines = {0};
+    if (view->equationPage == 2) outputFunctions(view, &lines);
+    else fmFunctions(view, &lines);
+    int maximum = lines.count > 16 ? lines.count - 16 : 0;
+    view->equationScroll = (int)fmin(view->equationScroll, maximum);
+    SDL_SetRenderDrawColor(view->renderer, 232, 239, 249, 255);
+    for (int i = 0; i < 16 && i + view->equationScroll < lines.count; ++i)
+        text(view, 100, 105 + i * 38, lines.lines[i + view->equationScroll]);
+    if (maximum > 0) {
+        SDL_Rect track = {1580, 105, 8, 608};
+        SDL_SetRenderDrawColor(view->renderer, 36, 52, 69, 255);
+        SDL_RenderFillRect(view->renderer, &track);
+        SDL_Rect thumb = {1580, 105 + view->equationScroll * 608 / lines.count, 8, 16 * 608 / lines.count};
+        SDL_SetRenderDrawColor(view->renderer, 101, 218, 233, 255);
+        SDL_RenderFillRect(view->renderer, &thumb);
+    }
+}
+
+void spectrogramNote(Spectrogram *view, int note)
+{
+    if (note >= 0 && note < 128)
+        view->equationFrequency = 440.0 * exp2((note - 69) / 12.0);
 }
 
 static void drawControls(Spectrogram *view)
 {
     SDL_Renderer *r = view->renderer;
     SDL_SetRenderDrawColor(r, 220, 232, 245, 255);
-    text(r, PANEL_X, 20, "LIVE SOUND CONTROLS");
-    text(r, PANEL_X, 48, synthPresetName(view->preset));
+    text(view, PANEL_X, 20, "LIVE SOUND CONTROLS");
+    text(view, PANEL_X, 48, synthPresetName(view->preset));
     for (int i = 0; i < 6; ++i) {
         SDL_Rect rect = selectorRect(i);
         char value[32];
         rowValue(view, selectorRows[i], value, sizeof(value));
         SDL_SetRenderDrawColor(r, 180, 199, 219, 255);
-        text(r, rect.x, rect.y, rowNames[selectorRows[i]]);
-        button(r, (SDL_Rect){rect.x, rect.y + 18, 36, 25}, "-", false);
-        button(r, (SDL_Rect){rect.x + 244, rect.y + 18, 36, 25}, "+", false);
-        text(r, rect.x + 48, rect.y + 24, value);
+        text(view, rect.x, rect.y, rowNames[selectorRows[i]]);
+        button(view, (SDL_Rect){rect.x, rect.y + 24, 36, 25}, "-", false);
+        button(view, (SDL_Rect){rect.x + 244, rect.y + 24, 36, 25}, "+", false);
+        text(view, rect.x + 48, rect.y + 24, value);
     }
     for (int i = 0; i < KNOB_COUNT; ++i) drawKnob(view, i);
     SDL_SetRenderDrawColor(r, 145, 165, 186, 255);
-    text(r, PANEL_X, 722, "DRAG UP DOWN OR SCROLL A KNOB");
-    text(r, PANEL_X, 748, "SHIFT DRAG FOR FINE CONTROL");
-    text(r, 80, 578, "PRESET");
-    button(r, presetBox, synthPresetName(view->preset), view->presetOpen);
+    text(view, PANEL_X, 722, "DRAG UP DOWN OR SCROLL A KNOB");
+    text(view, PANEL_X, 748, "SHIFT DRAG FOR FINE CONTROL");
+    text(view, 80, 578, "PRESET");
+    button(view, presetBox, synthPresetName(view->preset), view->presetOpen);
     /* Dropdown indicator. */
     for (int i = 0; i < 7; ++i)
         SDL_RenderDrawLine(r, 500 + i, 620 + i, 514 - i, 620 + i);
-    text(r, 80, 650, "MASTER OUTPUT ADSR");
+    text(view, 80, 650, "MASTER OUTPUT ADSR");
+    button(view, fmPageButton, "FM equations", false);
+    button(view, adsrPageButton, "Output ADSR", false);
     if (view->presetOpen) {
         for (int i = 0; i < PRESET_VISIBLE; ++i) {
             int preset = view->presetScroll + i;
-            button(r, (SDL_Rect){80, PRESET_LIST_Y + i * PRESET_ITEM_H, 450, PRESET_ITEM_H},
+            button(view, (SDL_Rect){80, PRESET_LIST_Y + i * PRESET_ITEM_H, 450, PRESET_ITEM_H},
                    synthPresetName(preset), preset == view->presetHighlight);
         }
         SDL_Rect track = {518, PRESET_LIST_Y, 10, PRESET_VISIBLE * PRESET_ITEM_H};
@@ -464,6 +644,10 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         view->presetOpen = false;
         SDL_CaptureMouse(SDL_FALSE);
         return 0;
+    }
+    if (event->type == SDL_KEYDOWN && view->equationPage && event->key.keysym.sym == SDLK_ESCAPE) {
+        view->equationPage = 0;
+        return 1;
     }
     if (event->type == SDL_KEYDOWN && view->presetOpen) {
         switch (event->key.keysym.sym) {
@@ -514,6 +698,22 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         if (!direction) return 0;
         direction = direction > 0 ? 1 : -1;
     } else return 0;
+    if (view->equationPage) {
+        if (direction) {
+            view->equationScroll = (int)fmax(0, view->equationScroll - direction * 3);
+            return 1;
+        }
+        if (click) view->equationScroll = 0;
+        if (click && inside(x, y, soundPageButton)) view->equationPage = 0;
+        else if (click && inside(x, y, (SDL_Rect){340,20,225,42})) view->equationPage = 1;
+        else if (click && inside(x, y, (SDL_Rect){600,20,225,42})) view->equationPage = 2;
+        return 1;
+    }
+    if (!view->presetOpen && click && (inside(x, y, fmPageButton) || inside(x, y, adsrPageButton))) {
+        view->equationPage = inside(x, y, fmPageButton) ? 1 : 2;
+        view->equationScroll = 0;
+        return 1;
+    }
     SDL_Rect list = {80, PRESET_LIST_Y, 450, PRESET_VISIBLE * PRESET_ITEM_H};
     if (view->presetOpen) {
         if (direction) {
@@ -538,7 +738,7 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         SDL_Rect rect = selectorRect(i);
         if (!inside(x, y, rect)) continue;
         if (!direction) {
-            if (y < rect.y + 18) return 0;
+            if (y < rect.y + 24) return 0;
             if (x < rect.x + 36) direction = -1;
             else if (x >= rect.x + 244) direction = 1;
             else return 0;
