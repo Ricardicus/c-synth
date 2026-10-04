@@ -339,8 +339,29 @@ static void testIndependentEnvelopes(void)
     CHECK(synth.operators[0].indexEnvelope == 0);
 }
 
+static void testNoise(void)
+{
+    Oscillator a, b;
+    oscillatorInit(&a, 48000); oscillatorInit(&b, 48000);
+    CHECK(oscillatorSetWaveform(&a, WAVE_NOISE) == 0);
+    CHECK(oscillatorSetWaveform(&b, WAVE_NOISE) == 0);
+    b.noiseState += 1;
+    double sum = 0, energy = 0, cross = 0;
+    for (int i = 0; i < 48000; ++i) {
+        double x = oscillatorNextSample(&a, 440), y = oscillatorNextSample(&b, 440);
+        CHECK(isfinite(x) && x >= -1 && x <= 1);
+        sum += x; energy += x*x; cross += x*y;
+    }
+    CHECK(fabs(sum / 48000) < .015);
+    CHECK(energy / 48000 > .31 && energy / 48000 < .35);
+    CHECK(fabs(cross / 48000) < .02);
+    Waveform wave;
+    CHECK(oscillatorParseWaveform("noise", &wave) && wave == WAVE_NOISE);
+}
+
 int main(void)
 {
+    testNoise();
     testFm();
     testDecay();
     testAdsr();

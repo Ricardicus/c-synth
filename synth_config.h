@@ -19,15 +19,26 @@ typedef struct {
 } SynthEnvelopeConfig;
 
 typedef struct {
+    double echoMix;       /* 0..1 */
+    double echoDelayMs;   /* 1..2000 */
+    double echoFeedback;  /* 0..0.95 */
+    double reverbMix;     /* 0..1 */
+    double reverbRoom;    /* 0..0.95, feedback amount */
+    double reverbDamping; /* 0..1, high-frequency absorption */
+} SynthEffectsConfig;
+
+typedef struct {
+    SynthEffectsConfig effects;
     SynthEnvelopeConfig outputEnvelope; /* Shared amplitude ADSR for every note. */
     int layerCount;
     SynthLayerConfig layers[SYNTH_MAX_LAYERS];
 } SynthConfig;
 
 SynthConfig synthDefaultConfig(void);
-#define SYNTH_PRESET_COUNT 12
+#define SYNTH_PRESET_COUNT 13
 const char *synthPresetName(int index);
 SynthConfig synthPresetConfig(int index);
+bool synthEffectsConfigValid(const SynthEffectsConfig *config);
 bool synthConfigValid(const SynthConfig *config);
 
 #endif

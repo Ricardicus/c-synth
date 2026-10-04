@@ -110,6 +110,32 @@ int main(void)
     deregisterNote(69);
     synthShutdown();
     CHECK(synthAudioSnapshot(samples, &position) == 0);
+    /* The flute's fundamental dominates the breath layer and higher partials. */
+    config = synthPresetConfig(12);
+    CHECK(synthInitWithLayers(&config) == 0);
+    registerNote(72);
+    SDL_Delay(220);
+    CHECK(synthAudioSnapshot(samples, &position) == 48000);
+    spectrumCompute(&spectrum, samples);
+    CHECK(peak(&spectrum, 20, 25) > -32);
+    CHECK(peak(&spectrum, 20, 25) > peak(&spectrum, 40, 500) + 12);
+    synthShutdown();
+    /* Echo survives note-off and appears in the captured final audio output. */
+    config = synthPresetConfig(1);
+    config.outputEnvelope.releaseMs = 0;
+    config.effects.echoMix = .7;
+    config.effects.echoDelayMs = 100;
+    config.effects.echoFeedback = .4;
+    CHECK(synthInitWithLayers(&config) == 0);
+    registerNote(69);
+    SDL_Delay(80);
+    deregisterNote(69);
+    SDL_Delay(60);
+    CHECK(synthAudioSnapshot(samples, &position) == 48000);
+    double tailEnergy = 0;
+    for (int i = 0; i < SYNTH_ANALYSIS_SAMPLES; ++i) tailEnergy += samples[i] * samples[i];
+    CHECK(tailEnergy > .01);
+    synthShutdown();
     CHECK(synthInit() == 0);
     synthShutdown();
     SDL_Quit();

@@ -1,5 +1,6 @@
 #include "synth.h"
 #include "envelope.h"
+#include "effects.h"
 
 #include <SDL.h>
 #include <math.h>
@@ -26,6 +27,7 @@ static Voice voices[NOTE_COUNT];
 static SDL_AudioDeviceID device;
 static int sampleRate;
 static int layerCount;
+static SynthEffects effects;
 static float analysisSamples[SYNTH_ANALYSIS_SAMPLES];
 static int analysisCursor;
 static uint64_t samplePosition;
@@ -50,6 +52,7 @@ static void audioCallback(void *userdata, Uint8 *stream, int length)
             }
             voice->active = voice->held || voice->envelope.stage != FM_ENV_IDLE;
         }
+        sample = effectsNext(&effects, (float)sample);
         samples[i] = (float)fmax(-1.0, fmin(1.0, sample));
         /* Capture the actual mixed output; analysis stays on the main thread. */
         analysisSamples[analysisCursor] = samples[i];
@@ -100,12 +103,19 @@ int synthInitWithLayers(const SynthConfig *config)
         return -1;
 
     sampleRate = obtained.freq;
+    if (effectsInit(&effects, sampleRate, config->effects) != 0) {
+        SDL_CloseAudioDevice(device); device = 0;
+        return SDL_SetError("Cannot initialize audio effects");
+    }
     for (int note = 0; note < NOTE_COUNT; ++note) {
         outputEnvelopeConfigure(&voices[note].envelope, config->outputEnvelope);
         for (int layer = 0; layer < layerCount; ++layer) {
             LayerVoice *part = &voices[note].layers[layer];
             const SynthLayerConfig *settings = &config->layers[layer];
             fmInit(&part->generator, sampleRate, &settings->fm);
+            for (int op = 0; op < part->generator.operatorCount; ++op)
+                part->generator.operators[op].oscillator.noiseState =
+                    (uint32_t)(note + 1) * 0x9e3779b9u ^ (uint32_t)(layer + 1) * 0x85ebca6bu ^ (uint32_t)(op + 1);
             part->pitchMultiplier = exp2(settings->detuneCents / 1200.0);
             part->mixGain = settings->gain / layerCount;
         }
@@ -121,6 +131,7 @@ int synthConfigure(const SynthConfig *config)
     if (device == 0)
         return SDL_SetError("Audio is not running");
     SDL_LockAudioDevice(device);
+    effectsConfigure(&effects, config->effects);
     int previousLayers = layerCount;
     layerCount = config->layerCount;
     for (int note = 0; note < NOTE_COUNT; ++note) {
@@ -132,6 +143,9 @@ int synthConfigure(const SynthConfig *config)
             bool existing = layer < previousLayers;
             const SynthLayerConfig *settings = &config->layers[layer];
             fmInit(&part->generator, sampleRate, &settings->fm);
+            for (int op = 0; op < part->generator.operatorCount; ++op)
+                part->generator.operators[op].oscillator.noiseState =
+                    (uint32_t)(note + 1) * 0x9e3779b9u ^ (uint32_t)(layer + 1) * 0x85ebca6bu ^ (uint32_t)(op + 1);
             if (voice->active) {
                 fmNoteOn(&part->generator, true);
                 if (!voice->held)
@@ -141,6 +155,7 @@ int synthConfigure(const SynthConfig *config)
                 for (int i = 0; i < previous.operatorCount && i < part->generator.operatorCount; ++i) {
                     FmOperator *op = &part->generator.operators[i];
                     const FmOperator *old = &previous.operators[i];
+                    op->oscillator.noiseState = old->oscillator.noiseState;
                     op->oscillator.phase = old->oscillator.phase;
                     op->oscillator.vibratoPhase = old->oscillator.vibratoPhase;
                     if (i < previous.operatorCount - 1 && i < part->generator.operatorCount - 1 &&
@@ -166,6 +181,7 @@ void synthShutdown(void)
     if (device != 0) {
         SDL_CloseAudioDevice(device);
         device = 0;
+        effectsDestroy(&effects);
     }
 }
 

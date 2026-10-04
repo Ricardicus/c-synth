@@ -90,6 +90,19 @@ int parseOptions(int argc, char *argv[], SynthConfig *config,
         const char *option = argv[i];
         if (strcmp(option, "--help") == 0 || strcmp(option, "-h") == 0)
             return 1;
+        double *effectValue = NULL;
+        if (strcmp(option, "--echo-mix") == 0) effectValue = &config->effects.echoMix;
+        else if (strcmp(option, "--echo-delay") == 0) effectValue = &config->effects.echoDelayMs;
+        else if (strcmp(option, "--echo-feedback") == 0) effectValue = &config->effects.echoFeedback;
+        else if (strcmp(option, "--reverb-mix") == 0) effectValue = &config->effects.reverbMix;
+        else if (strcmp(option, "--reverb-room") == 0) effectValue = &config->effects.reverbRoom;
+        else if (strcmp(option, "--reverb-damping") == 0) effectValue = &config->effects.reverbDamping;
+        if (effectValue) {
+            if (++i == argc || !parseNumber(argv[i], effectValue) || !synthEffectsConfigValid(&config->effects)) {
+                snprintf(error, errorSize, "Invalid value for %s", option); return -1;
+            }
+            continue;
+        }
         if (strcmp(option, "--master-adsr") == 0) {
             FmOperatorConfig parsed = {0};
             if (++i == argc || !parseAdsr(argv[i], &parsed)) {
@@ -248,7 +261,7 @@ void printUsage(const char *program)
            "  --ops N                  Operator count in layer 1\n"
            "  --rm NUMBER              Depth/index for all layer 1 modulators (default 2)\n"
            "  --opN-ratio NUMBER       Operator frequency / base frequency > 0 (default 1)\n"
-           "  --opN-waveform NAME      sine, square, triangle, sawtooth (or saw), pulse\n"
+           "  --opN-waveform NAME      sine, square, triangle, sawtooth (or saw), pulse, noise\n"
            "  --opN-pulse-width NUMBER Pulse high fraction, 0 < value < 1 (default 0.25)\n"
            "  --opN-vibrato-rate NUM   Vibrato rate in Hz, >= 0 (default 5)\n"
            "  --opN-vibrato-depth NUM  Vibrato depth in cents, 0..1200 (default 0, off)\n"
@@ -257,6 +270,12 @@ void printUsage(const char *program)
            "  --opN-i-decay NUMBER     Exponential decay rate per second >= 0 (default 2)\n"
            "  --opN-i-adsr A,D,S,R     Integer attack/decay/release ms, sustain 0-100%%\n"
            "                           Defaults: 10,200,50,300; times may be zero\n"
+           "  --echo-mix NUMBER        Echo wet gain 0..1 (default 0)\n"
+           "  --echo-delay MS          Echo delay 1..2000 ms (default 300)\n"
+           "  --echo-feedback NUMBER   Repeat feedback 0..0.95 (default 0.35)\n"
+           "  --reverb-mix NUMBER      Reverb wet gain 0..1 (default 0)\n"
+           "  --reverb-room NUMBER     Room feedback 0..0.95 (default 0.7)\n"
+           "  --reverb-damping NUMBER  High-frequency damping 0..1 (default 0.4)\n"
            "  --master-adsr A,D,S,R    Output amplitude ADSR (default 5,0,100,5)\n"
            "  --help, -h              Show this help\n"
            "Use --layerL-opN-* for operator N in layer L, e.g. --layer2-op1-rm 3.\n"

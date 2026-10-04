@@ -53,7 +53,11 @@ int main(void)
     for (int i = 0; i < 10; ++i) CHECK(spectrogramEvent(v, &e) == 1);
     CHECK(v->presetScroll == SYNTH_PRESET_COUNT - PRESET_VISIBLE);
     click(v, 100, PRESET_LIST_Y + 7 * PRESET_ITEM_H + 10);
-    CHECK(v->preset == 11 && !v->presetOpen);
+    CHECK(v->preset == 12 && !v->presetOpen);
+    CHECK(v->config.layers[1].fm.operators[0].waveform == WAVE_NOISE);
+    SynthConfig baseline = synthPresetConfig(11);
+    CHECK(synthConfigure(&baseline) == 0);
+    spectrogramSetConfig(v, &baseline);
     /* Upward dragging increases gain; release ends the drag. */
     v->config.layers[0].gain = .5;
     CHECK(synthConfigure(&v->config) == 0);
@@ -73,10 +77,10 @@ int main(void)
         e.type = SDL_MOUSEBUTTONUP; e.button.button = SDL_BUTTON_LEFT;
         CHECK(spectrogramEvent(v, &e) == 1);
     }
-    CHECK(v->config.outputEnvelope.attackMs == before[0] + 100);
-    CHECK(v->config.outputEnvelope.decayMs == before[1] + 250);
+    CHECK(v->config.outputEnvelope.attackMs == before[0] + 10);
+    CHECK(v->config.outputEnvelope.decayMs == before[1] + 10);
     CHECK(v->config.outputEnvelope.sustainPercent == 100); /* Clamped. */
-    CHECK(v->config.outputEnvelope.releaseMs == before[3] + 250);
+    CHECK(v->config.outputEnvelope.releaseMs == before[3] + 10);
     /* Escape dismisses a dropdown, and arrows/Enter commit one selection. */
     click(v, 100, 620);
     e.type = SDL_KEYDOWN; e.key.keysym.sym = SDLK_ESCAPE;
@@ -85,8 +89,29 @@ int main(void)
     e.key.keysym.sym = SDLK_END;
     CHECK(spectrogramEvent(v, &e) == 1);
     e.key.keysym.sym = SDLK_RETURN;
-    CHECK(spectrogramEvent(v, &e) == 1 && v->preset == 11);
+    CHECK(spectrogramEvent(v, &e) == 1 && v->preset == 12);
     CHECK(spectrogramDraw(v) == 0);
+    baseline = synthPresetConfig(11);
+    CHECK(synthConfigure(&baseline) == 0);
+    spectrogramSetConfig(v, &baseline);
+    /* Decimal knobs react to one pixel, including reversals and Shift precision. */
+    v->config.layers[0].fm.operators[0].ratio = 1;
+    click(v, 1500, 310);
+    e.type = SDL_MOUSEMOTION; e.motion.y = 309;
+    CHECK(spectrogramEvent(v, &e) == 1);
+    CHECK(fabs(v->config.layers[0].fm.operators[0].ratio - 1.0025) < 1e-9);
+    e.motion.y = 310;
+    CHECK(spectrogramEvent(v, &e) == 1);
+    CHECK(fabs(v->config.layers[0].fm.operators[0].ratio - 1) < 1e-9);
+    SDL_SetModState(KMOD_SHIFT);
+    e.motion.y = 306;
+    CHECK(spectrogramEvent(v, &e) == 1);
+    CHECK(fabs(v->config.layers[0].fm.operators[0].ratio - 1.001) < 1e-9);
+    SDL_SetModState(KMOD_NONE);
+    e.type = SDL_MOUSEBUTTONUP; e.button.button = SDL_BUTTON_LEFT;
+    CHECK(spectrogramEvent(v, &e) == 1);
+    CHECK(changeRow(v, 8, 1) == 0);
+    CHECK(fabs(v->config.layers[0].fm.operators[0].rm - 5.01) < 1e-9);
     /* Raw functions use actual waveforms, numeric FM deviation, and live pitch. */
     SynthConfig raw = synthDefaultConfig();
     spectrogramSetConfig(v, &raw);
@@ -124,6 +149,25 @@ int main(void)
     e.type = SDL_KEYDOWN; e.key.keysym.sym = SDLK_ESCAPE;
     CHECK(spectrogramEvent(v, &e) == 1 && v->equationPage == 0);
     CHECK(spectrogramDraw(v) == 0);
+    click(v, 570, 665);
+    CHECK(v->equationPage == 3);
+    CHECK(spectrogramDraw(v) == 0);
+    for (int i = SOUND_KNOBS; i < KNOB_COUNT; ++i) {
+        SDL_Rect rect = knobRect(i);
+        click(v, rect.x + 120, rect.y + 50);
+        e.type = SDL_MOUSEMOTION; e.motion.y = rect.y + 46;
+        CHECK(spectrogramEvent(v, &e) == 1);
+        e.type = SDL_MOUSEBUTTONUP; e.button.button = SDL_BUTTON_LEFT;
+        CHECK(spectrogramEvent(v, &e) == 1);
+    }
+    CHECK(fabs(v->config.effects.echoMix - .01) < 1e-9);
+    CHECK(fabs(v->config.effects.echoDelayMs - 301) < 1e-9);
+    CHECK(fabs(v->config.effects.echoFeedback - .36) < 1e-9);
+    CHECK(fabs(v->config.effects.reverbMix - .01) < 1e-9);
+    CHECK(fabs(v->config.effects.reverbRoom - .71) < 1e-9);
+    CHECK(fabs(v->config.effects.reverbDamping - .41) < 1e-9);
+    e.type = SDL_KEYDOWN; e.key.keysym.sym = SDLK_ESCAPE;
+    CHECK(spectrogramEvent(v, &e) == 1 && v->equationPage == 0);
     if (getenv("GUI_CAPTURE")) {
         SDL_SetWindowSize(w, 1640, 780);
         SDL_PumpEvents();

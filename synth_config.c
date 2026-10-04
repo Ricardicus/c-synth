@@ -6,6 +6,7 @@
 SynthConfig synthDefaultConfig(void)
 {
     SynthConfig config = {.layerCount = 1, .outputEnvelope = {5, 0, 100, 5}};
+    config.effects = (SynthEffectsConfig){0, 300, .35, 0, .7, .4};
     for (int i = 0; i < SYNTH_MAX_LAYERS; ++i)
         config.layers[i] = (SynthLayerConfig){.fm = fmDefaultConfig(), .gain = 1.0};
     return config;
@@ -15,6 +16,7 @@ bool synthConfigValid(const SynthConfig *config)
 {
     if (config == NULL || config->layerCount < 1 || config->layerCount > SYNTH_MAX_LAYERS)
         return false;
+    if (!synthEffectsConfigValid(&config->effects)) return false;
     const SynthEnvelopeConfig *env = &config->outputEnvelope;
     if (env->attackMs < 0 || env->decayMs < 0 || env->releaseMs < 0 ||
         env->sustainPercent < 0 || env->sustainPercent > 100)
@@ -35,7 +37,7 @@ const char *synthPresetName(int index)
     static const char *names[SYNTH_PRESET_COUNT] = {
         "Classic FM", "Pure sine", "Warm triangle", "Saw lead",
         "Pulse bass", "Electric piano", "Glass bell", "Metal chime",
-        "Soft organ", "Wide pad", "Brass", "Space wobble"
+        "Soft organ", "Wide pad", "Brass", "Space wobble", "Flute"
     };
     return index >= 0 && index < SYNTH_PRESET_COUNT ? names[index] : "Custom";
 }
@@ -92,7 +94,30 @@ SynthConfig synthPresetConfig(int index)
         m->ratio = 0.5; m->rm = 5; m->vibratoRateHz = 2; m->vibratoDepthCents = 300;
         carrier->vibratoRateHz = 4; carrier->vibratoDepthCents = 25;
         break;
+    case 12:
+        c.layerCount = 2;
+        c.outputEnvelope = (SynthEnvelopeConfig){45, 180, 88, 220};
+        m->ratio = 2; m->rm = .12; m->indexMode = FM_INDEX_ADSR;
+        m->attackMs = 35; m->decayMs = 160; m->sustainPercent = 35; m->releaseMs = 160;
+        carrier->vibratoRateHz = 5.2; carrier->vibratoDepthCents = 9;
+        c.layers[1].fm.operatorCount = 1;
+        c.layers[1].fm.operators[0].waveform = WAVE_NOISE;
+        c.layers[1].gain = .025;
+        c.effects.reverbMix = .12;
+        c.effects.reverbRoom = .65;
+        c.effects.reverbDamping = .65;
+        break;
     default: break;
     }
     return c;
+}
+
+bool synthEffectsConfigValid(const SynthEffectsConfig *c)
+{
+    return c && isfinite(c->echoMix) && c->echoMix >= 0 && c->echoMix <= 1 &&
+        isfinite(c->echoDelayMs) && c->echoDelayMs >= 1 && c->echoDelayMs <= 2000 &&
+        isfinite(c->echoFeedback) && c->echoFeedback >= 0 && c->echoFeedback <= .95 &&
+        isfinite(c->reverbMix) && c->reverbMix >= 0 && c->reverbMix <= 1 &&
+        isfinite(c->reverbRoom) && c->reverbRoom >= 0 && c->reverbRoom <= .95 &&
+        isfinite(c->reverbDamping) && c->reverbDamping >= 0 && c->reverbDamping <= 1;
 }

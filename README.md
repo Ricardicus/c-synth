@@ -36,7 +36,11 @@ Release a key to stop its note. Losing window focus releases all notes.
 Escape or closing the window quits.
 
 The right side of the window contains live sound controls. Drag a knob upward to increase its value or downward to decrease it; scroll
-over a knob for small steps. Hold Shift while dragging for finer adjustments.
+over a knob for small steps. Ratio, FM depth, index decay rate, and vibrato rate
+use 0.01 steps; detune and vibrato depth use 0.1 cent steps. Decimal knobs drag
+continuously and support fractional trackpad scrolling. Hold Shift while dragging
+or scrolling for ten times finer adjustment. Envelope times use 1 ms steps and
+sustain uses 1 percent steps.
 Discrete choices (layer/operator selection, counts, waveform and envelope mode)
 use **-** / **+** selectors. Select a layer and operator to edit their
 settings; the layer and operator count controls add or remove parts of the
@@ -63,9 +67,29 @@ click one entry to replace the complete sound. Up/Down, Home/End and Enter also
 select an entry while the list is open; Escape or an outside click dismisses it.
 Available presets:
 Classic FM, Pure sine, Warm triangle, Saw lead, Pulse bass, Electric piano,
-Glass bell, Metal chime, Soft organ, Wide pad, Brass, or Space wobble.
+Glass bell, Metal chime, Soft organ, Wide pad, Brass, Space wobble, and Flute.
+Flute uses a soft sine FM tone, quiet breath noise, gentle vibrato, and light reverb.
 Editing a sound changes its label to **Custom**. Startup command-line settings
 populate the panel; edits and preset selections last for the current session.
+
+Open **Effects** next to the master ADSR controls to adjust echo mix, delay (1–2000 ms),
+and feedback, plus reverb mix, room size, and damping. Effects apply after all notes
+and their output envelopes are mixed, so echoes and reverb continue after note-off.
+Echo feeds into reverb. Mix 0 bypasses the wet signal; effects default to off except
+for the Flute preset's light reverb. Settings follow preset selection and can be
+changed while playing; effect parameters glide over about 20 ms.
+
+Startup options: `--echo-mix`, `--echo-delay`, `--echo-feedback`, `--reverb-mix`,
+`--reverb-room`, and `--reverb-damping`. Mix/damping values are 0–1;
+feedback/room values are 0–0.95. For example:
+
+```sh
+./build/keyboard_synth --echo-mix 0.3 --echo-delay 280 --echo-feedback 0.35 --reverb-mix 0.15
+```
+
+**Noise** is a white-noise waveform with an independent random generator for each
+voice/layer/operator. Use it as a carrier for noise or as a modulator for a noisy
+FM tone. Its output is independent of oscillator pitch and phase.
 
 The window shows a live spectrogram of the combined audio output.
 Frequency runs upward on a logarithmic scale from 40 Hz to 20 kHz (or
@@ -106,7 +130,7 @@ This uses the index/deviation relationship described in
 | `--ops N` | Number of operators in layer 1, 1–8 | 2 |
 | `--rm NUMBER` | Set nonnegative depth for all layer 1 modulators | 2 |
 | `--opN-ratio NUMBER` | OP N nominal frequency divided by base frequency, positive | 1 |
-| `--opN-waveform NAME` | sine, square, triangle, sawtooth (alias: saw), pulse | sine |
+| `--opN-waveform NAME` | sine, square, triangle, sawtooth (alias: saw), pulse, noise | sine |
 | `--opN-pulse-width NUMBER` | Pulse high fraction, strictly between 0 and 1 | 0.25 |
 | `--opN-vibrato-rate NUMBER` | Vibrato rate in Hz, nonnegative | 5 |
 | `--opN-vibrato-depth NUMBER` | Vibrato depth in cents, 0–1200; 0 switches it off | 0 |

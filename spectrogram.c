@@ -273,14 +273,15 @@ void spectrogramDestroy(Spectrogram *view)
 
 /* Controls share their geometry between drawing and hit testing. */
 #define PANEL_X 1020
-#define CONTROL_ROWS 22
-#define KNOB_COUNT 16
+#define CONTROL_ROWS 28
+#define SOUND_KNOBS 16
+#define KNOB_COUNT 22
 #define PRESET_VISIBLE 8
 #define PRESET_ITEM_H 30
 #define PRESET_LIST_Y 365
 
 static const SDL_Rect presetBox = {80, 605, 450, 38};
-static const int knobRows[KNOB_COUNT] = {2, 3, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
+static const int knobRows[KNOB_COUNT] = {2, 3, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
 static const int selectorRows[6] = {0, 1, 4, 5, 6, 9};
 
 static const char *rowNames[CONTROL_ROWS] = {
@@ -288,7 +289,8 @@ static const char *rowNames[CONTROL_ROWS] = {
     "Operators", "Selected operator", "Waveform", "Ratio", "FM depth",
     "Index envelope", "Index decay rate", "Attack ms", "Decay ms",
     "Sustain percent", "Release ms", "Pulse width", "Vibrato Hz",
-    "Vibrato cents", "Attack ms", "Decay ms", "Sustain percent", "Release ms"
+    "Vibrato cents", "Attack ms", "Decay ms", "Sustain percent", "Release ms",
+    "Echo mix", "Echo delay ms", "Echo feedback", "Reverb mix", "Room size", "Damping"
 };
 
 void spectrogramSetConfig(Spectrogram *view, const SynthConfig *config)
@@ -329,6 +331,12 @@ static void rowValue(Spectrogram *view, int row, char *value, size_t size)
     case 19: number = view->config.outputEnvelope.decayMs; break;
     case 20: number = view->config.outputEnvelope.sustainPercent; break;
     case 21: number = view->config.outputEnvelope.releaseMs; break;
+    case 22: number = view->config.effects.echoMix; break;
+    case 23: number = view->config.effects.echoDelayMs; break;
+    case 24: number = view->config.effects.echoFeedback; break;
+    case 25: number = view->config.effects.reverbMix; break;
+    case 26: number = view->config.effects.reverbRoom; break;
+    case 27: number = view->config.effects.reverbDamping; break;
     default: value[0] = 0; return;
     }
     snprintf(value, size, "%.2f", number);
@@ -337,6 +345,11 @@ static void rowValue(Spectrogram *view, int row, char *value, size_t size)
 static double adjust(double value, double step, double direction, double low, double high)
 {
     return fmax(low, fmin(high, value + step * direction));
+}
+
+static bool integerKnob(int row)
+{
+    return row == 11 || row == 12 || row == 13 || row == 14 || (row >= 18 && row <= 21);
 }
 
 static int changeRow(Spectrogram *view, int row, double direction)
@@ -348,25 +361,31 @@ static int changeRow(Spectrogram *view, int row, double direction)
     case 0: view->config.layerCount = (int)adjust(view->config.layerCount, 1, direction, 1, SYNTH_MAX_LAYERS); break;
     case 1: view->selectedLayer = (int)adjust(view->selectedLayer, 1, direction, 0, view->config.layerCount - 1); break;
     case 2: layer->gain = adjust(layer->gain, .01, direction, 0, 1); break;
-    case 3: layer->detuneCents = adjust(layer->detuneCents, 5, direction, -4800, 4800); break;
+    case 3: layer->detuneCents = adjust(layer->detuneCents, .1, direction, -4800, 4800); break;
     case 4: layer->fm.operatorCount = (int)adjust(layer->fm.operatorCount, 1, direction, 1, FM_MAX_OPERATORS); break;
     case 5: view->selectedOperator = (int)adjust(view->selectedOperator, 1, direction, 0, layer->fm.operatorCount - 1); break;
-    case 6: op->waveform = (Waveform)((op->waveform + (int)direction + 5) % 5); break;
-    case 7: op->ratio = adjust(op->ratio, .25, direction, .25, 32); break;
-    case 8: op->rm = adjust(op->rm, .25, direction, 0, 32); break;
+    case 6: op->waveform = (Waveform)((op->waveform + (int)direction + WAVE_COUNT) % WAVE_COUNT); break;
+    case 7: op->ratio = adjust(op->ratio, .01, direction, .01, 32); break;
+    case 8: op->rm = adjust(op->rm, .01, direction, 0, 32); break;
     case 9: op->indexMode = (FmIndexMode)((op->indexMode + (int)direction + 3) % 3); break;
-    case 10: op->decayRate = adjust(op->decayRate, .25, direction, 0, 100); break;
-    case 11: op->attackMs = (int)adjust(op->attackMs, 10, direction, 0, 10000); break;
-    case 12: op->decayMs = (int)adjust(op->decayMs, 25, direction, 0, 10000); break;
-    case 13: op->sustainPercent = (int)adjust(op->sustainPercent, 5, direction, 0, 100); break;
-    case 14: op->releaseMs = (int)adjust(op->releaseMs, 25, direction, 0, 10000); break;
+    case 10: op->decayRate = adjust(op->decayRate, .01, direction, 0, 100); break;
+    case 11: op->attackMs = (int)adjust(op->attackMs, 1, direction, 0, 10000); break;
+    case 12: op->decayMs = (int)adjust(op->decayMs, 1, direction, 0, 10000); break;
+    case 13: op->sustainPercent = (int)adjust(op->sustainPercent, 1, direction, 0, 100); break;
+    case 14: op->releaseMs = (int)adjust(op->releaseMs, 1, direction, 0, 10000); break;
     case 15: op->pulseWidth = adjust(op->pulseWidth, .01, direction, .05, .95); break;
-    case 16: op->vibratoRateHz = adjust(op->vibratoRateHz, .25, direction, 0, 50); break;
-    case 17: op->vibratoDepthCents = adjust(op->vibratoDepthCents, 5, direction, 0, 1200); break;
-    case 18: view->config.outputEnvelope.attackMs = (int)adjust(view->config.outputEnvelope.attackMs, 10, direction, 0, 10000); break;
-    case 19: view->config.outputEnvelope.decayMs = (int)adjust(view->config.outputEnvelope.decayMs, 25, direction, 0, 10000); break;
+    case 16: op->vibratoRateHz = adjust(op->vibratoRateHz, .01, direction, 0, 50); break;
+    case 17: op->vibratoDepthCents = adjust(op->vibratoDepthCents, .1, direction, 0, 1200); break;
+    case 18: view->config.outputEnvelope.attackMs = (int)adjust(view->config.outputEnvelope.attackMs, 1, direction, 0, 10000); break;
+    case 19: view->config.outputEnvelope.decayMs = (int)adjust(view->config.outputEnvelope.decayMs, 1, direction, 0, 10000); break;
     case 20: view->config.outputEnvelope.sustainPercent = (int)adjust(view->config.outputEnvelope.sustainPercent, 1, direction, 0, 100); break;
-    case 21: view->config.outputEnvelope.releaseMs = (int)adjust(view->config.outputEnvelope.releaseMs, 25, direction, 0, 10000); break;
+    case 21: view->config.outputEnvelope.releaseMs = (int)adjust(view->config.outputEnvelope.releaseMs, 1, direction, 0, 10000); break;
+    case 22: view->config.effects.echoMix = adjust(view->config.effects.echoMix, .01, direction, 0, 1); break;
+    case 23: view->config.effects.echoDelayMs = adjust(view->config.effects.echoDelayMs, 1, direction, 1, 2000); break;
+    case 24: view->config.effects.echoFeedback = adjust(view->config.effects.echoFeedback, .01, direction, 0, .95); break;
+    case 25: view->config.effects.reverbMix = adjust(view->config.effects.reverbMix, .01, direction, 0, 1); break;
+    case 26: view->config.effects.reverbRoom = adjust(view->config.effects.reverbRoom, .01, direction, 0, .95); break;
+    case 27: view->config.effects.reverbDamping = adjust(view->config.effects.reverbDamping, .01, direction, 0, 1); break;
     default: return 0;
     }
     view->selectedLayer = (int)fmin(view->selectedLayer, view->config.layerCount - 1);
@@ -390,6 +409,7 @@ static void button(Spectrogram *view, SDL_Rect rect, const char *label, bool act
 
 static SDL_Rect knobRect(int index)
 {
+    if (index >= SOUND_KNOBS) return (SDL_Rect){220 + ((index - SOUND_KNOBS) % 3) * 400, 180 + ((index - SOUND_KNOBS) / 3) * 180, 240, 104};
     if (index >= 12) return (SDL_Rect){80 + (index - 12) * 225, 670, 210, 104};
     return (SDL_Rect){PANEL_X + (index % 3) * 195, 260 + (index / 3) * 112, 185, 104};
 }
@@ -414,8 +434,8 @@ static void circle(SDL_Renderer *r, int x, int y, int radius)
 
 static void drawKnob(Spectrogram *view, int index)
 {
-    static const double lows[KNOB_COUNT] = {0, -4800, .25, 0, 0, 0, 0, 0, 0, .05, 0, 0, 0, 0, 0, 0};
-    static const double highs[KNOB_COUNT] = {1, 4800, 32, 32, 100, 10000, 10000, 100, 10000, .95, 50, 1200, 10000, 10000, 100, 10000};
+    static const double lows[KNOB_COUNT] = {0, -4800, .01, 0, 0, 0, 0, 0, 0, .05, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0};
+    static const double highs[KNOB_COUNT] = {1, 4800, 32, 32, 100, 10000, 10000, 100, 10000, .95, 50, 1200, 10000, 10000, 100, 10000, 1, 2000, .95, 1, .95, 1};
     int row = knobRows[index];
     SDL_Rect rect = knobRect(index);
     SDL_Renderer *r = view->renderer;
@@ -441,6 +461,7 @@ static void drawKnob(Spectrogram *view, int index)
 
 static const SDL_Rect fmPageButton = {550, 605, 205, 38};
 static const SDL_Rect adsrPageButton = {775, 605, 205, 38};
+static const SDL_Rect effectsPageButton = {550, 650, 205, 38};
 static const SDL_Rect soundPageButton = {80, 20, 225, 42};
 
 typedef struct {
@@ -467,7 +488,9 @@ static void waveformFunction(const FmOperatorConfig *op, int layer, int index,
                              char *value, size_t size)
 {
     const char *name = op->waveform == WAVE_SINE ? "sin" : oscillatorWaveformName(op->waveform);
-    if (op->waveform == WAVE_PULSE)
+    if (op->waveform == WAVE_NOISE)
+        snprintf(value, size, "n%d_%d(t)", layer, index);
+    else if (op->waveform == WAVE_PULSE)
         snprintf(value, size, "pulse(p%d_%d(t), %.2f)", layer, index, op->pulseWidth);
     else
         snprintf(value, size, "%s(p%d_%d(t))", name, layer, index);
@@ -492,6 +515,11 @@ static void fmFunctions(const Spectrogram *view, EquationLines *lines)
         addEquation(lines, " ");
         for (int k = 0; k < layer->fm.operatorCount; ++k) {
             const FmOperatorConfig *op = &layer->fm.operators[k];
+            if (op->waveform == WAVE_NOISE) {
+                snprintf(line, sizeof(line), "n%d_%d(t) = uniform(-1.00, 1.00)", l + 1, k + 1);
+                addEquation(lines, line);
+                continue;
+            }
             double frequency = base * op->ratio;
             if (k == 0 || layer->fm.operators[k - 1].rm == 0) {
                 snprintf(line, sizeof(line), "p%d_%d'(t) = 2.00*pi * (%.2f)", l + 1, k + 1, frequency);
@@ -552,6 +580,17 @@ static void drawEquations(Spectrogram *view)
     button(view, soundPageButton, "Back to sound", false);
     button(view, (SDL_Rect){340, 20, 225, 42}, "FM equations", view->equationPage == 1);
     button(view, (SDL_Rect){600, 20, 225, 42}, "Output ADSR", view->equationPage == 2);
+    button(view, (SDL_Rect){860,20,225,42}, "Effects", view->equationPage == 3);
+    if (view->equationPage == 3) {
+        SDL_SetRenderDrawColor(view->renderer, 101, 218, 233, 255);
+        textScaled(view, 100, 95, "Echo and reverb", 3);
+        for (int i = SOUND_KNOBS; i < KNOB_COUNT; ++i) drawKnob(view, i);
+        SDL_SetRenderDrawColor(view->renderer, 210, 225, 240, 255);
+        text(view, 220, 540, "Dry signal -> echo -> reverb -> output");
+        text(view, 220, 585, "Mix 0.00 bypasses that effect.");
+        text(view, 220, 630, "Drag or scroll. Hold Shift for fine control.");
+        return;
+    }
     EquationLines lines = {0};
     if (view->equationPage == 2) outputFunctions(view, &lines);
     else fmFunctions(view, &lines);
@@ -592,7 +631,7 @@ static void drawControls(Spectrogram *view)
         button(view, (SDL_Rect){rect.x + 244, rect.y + 24, 36, 25}, "+", false);
         text(view, rect.x + 48, rect.y + 24, value);
     }
-    for (int i = 0; i < KNOB_COUNT; ++i) drawKnob(view, i);
+    for (int i = 0; i < SOUND_KNOBS; ++i) drawKnob(view, i);
     SDL_SetRenderDrawColor(r, 145, 165, 186, 255);
     text(view, PANEL_X, 722, "DRAG UP DOWN OR SCROLL A KNOB");
     text(view, PANEL_X, 748, "SHIFT DRAG FOR FINE CONTROL");
@@ -604,6 +643,7 @@ static void drawControls(Spectrogram *view)
     text(view, 80, 650, "MASTER OUTPUT ADSR");
     button(view, fmPageButton, "FM equations", false);
     button(view, adsrPageButton, "Output ADSR", false);
+    button(view, effectsPageButton, "Effects", false);
     if (view->presetOpen) {
         for (int i = 0; i < PRESET_VISIBLE; ++i) {
             int preset = view->presetScroll + i;
@@ -672,7 +712,11 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         double delta = (view->dragY - event->motion.y) / 4.0;
         if (SDL_GetModState() & KMOD_SHIFT) delta *= .1;
         view->dragY = event->motion.y;
-        /* Integer-valued envelopes accumulate fractional movement. */
+        if (!integerKnob(view->dragRow)) {
+            if (delta == 0) return 1;
+            return changeRow(view, view->dragRow, delta) < 0 ? -1 : 1;
+        }
+        /* Milliseconds and whole percentages accumulate fractional motion. */
         view->dragRemainder += delta;
         int steps = (int)view->dragRemainder;
         if (!steps) return 1;
@@ -680,6 +724,7 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         return changeRow(view, view->dragRow, steps) < 0 ? -1 : 1;
     }
     int x, y, direction = 0;
+    double wheelDelta = 0;
     bool click = event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT;
     if (click) {
         /* SDL_RenderSetLogicalSize already transforms button and motion events. */
@@ -693,24 +738,24 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         SDL_GetMouseState(&wx, &wy);
         SDL_RenderWindowToLogical(view->renderer, wx, wy, &lx, &ly);
         x = (int)lx; y = (int)ly;
-        direction = event->wheel.y;
-        if (event->wheel.direction == SDL_MOUSEWHEEL_FLIPPED) direction = -direction;
-        if (!direction) return 0;
-        direction = direction > 0 ? 1 : -1;
+        wheelDelta = event->wheel.preciseY != 0 ? event->wheel.preciseY : event->wheel.y;
+        if (event->wheel.direction == SDL_MOUSEWHEEL_FLIPPED) wheelDelta = -wheelDelta;
+        if (!wheelDelta) return 0;
+        direction = wheelDelta > 0 ? 1 : -1;
     } else return 0;
     if (view->equationPage) {
-        if (direction) {
-            view->equationScroll = (int)fmax(0, view->equationScroll - direction * 3);
+        if (click && inside(x, y, soundPageButton)) { view->equationPage = 0; return 1; }
+        if (click && inside(x, y, (SDL_Rect){340,20,225,42})) { view->equationPage = 1; view->equationScroll = 0; return 1; }
+        if (click && inside(x, y, (SDL_Rect){600,20,225,42})) { view->equationPage = 2; view->equationScroll = 0; return 1; }
+        if (click && inside(x, y, (SDL_Rect){860,20,225,42})) { view->equationPage = 3; return 1; }
+        if (view->equationPage != 3) {
+            if (direction) view->equationScroll = (int)fmax(0, view->equationScroll - direction * 3);
             return 1;
         }
-        if (click) view->equationScroll = 0;
-        if (click && inside(x, y, soundPageButton)) view->equationPage = 0;
-        else if (click && inside(x, y, (SDL_Rect){340,20,225,42})) view->equationPage = 1;
-        else if (click && inside(x, y, (SDL_Rect){600,20,225,42})) view->equationPage = 2;
-        return 1;
     }
-    if (!view->presetOpen && click && (inside(x, y, fmPageButton) || inside(x, y, adsrPageButton))) {
-        view->equationPage = inside(x, y, fmPageButton) ? 1 : 2;
+    if (!view->equationPage && !view->presetOpen && click &&
+        (inside(x, y, fmPageButton) || inside(x, y, adsrPageButton) || inside(x, y, effectsPageButton))) {
+        view->equationPage = inside(x, y, fmPageButton) ? 1 : inside(x, y, adsrPageButton) ? 2 : 3;
         view->equationScroll = 0;
         return 1;
     }
@@ -728,13 +773,13 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         if (click) { view->presetOpen = false; return 1; }
         return 0;
     }
-    if (click && inside(x, y, presetBox)) {
+    if (!view->equationPage && click && inside(x, y, presetBox)) {
         view->presetOpen = true;
         view->presetHighlight = view->preset >= 0 ? view->preset : 0;
         revealPreset(view);
         return 1;
     }
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; !view->equationPage && i < 6; ++i) {
         SDL_Rect rect = selectorRect(i);
         if (!inside(x, y, rect)) continue;
         if (!direction) {
@@ -745,9 +790,14 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         }
         return changeRow(view, selectorRows[i], direction) < 0 ? -1 : 1;
     }
-    for (int i = 0; i < KNOB_COUNT; ++i) {
+    for (int i = view->equationPage == 3 ? SOUND_KNOBS : 0;
+         i < (view->equationPage == 3 ? KNOB_COUNT : SOUND_KNOBS); ++i) {
         if (!inside(x, y, knobRect(i))) continue;
-        if (direction) return changeRow(view, knobRows[i], direction) < 0 ? -1 : 1;
+        if (direction) {
+            double amount = integerKnob(knobRows[i]) ? direction : wheelDelta;
+            if (!integerKnob(knobRows[i]) && (SDL_GetModState() & KMOD_SHIFT)) amount *= .1;
+            return changeRow(view, knobRows[i], amount) < 0 ? -1 : 1;
+        }
         if (click) {
             view->dragRow = knobRows[i];
             view->dragY = y;

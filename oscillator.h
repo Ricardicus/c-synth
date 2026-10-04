@@ -2,13 +2,16 @@
 #define OSCILLATOR_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef enum {
     WAVE_SINE,
     WAVE_SQUARE,
     WAVE_TRIANGLE,
     WAVE_SAWTOOTH,
-    WAVE_PULSE
+    WAVE_PULSE,
+    WAVE_NOISE,
+    WAVE_COUNT
 } Waveform;
 
 const char *oscillatorWaveformName(Waveform waveform);
@@ -16,6 +19,7 @@ bool oscillatorParseWaveform(const char *name, Waveform *waveform);
 
 /* One instance per voice. No SDL dependency; owned by the rendering thread. */
 typedef struct {
+    uint32_t noiseState;
     double phase;
     double sampleRate;
     Waveform waveform;

@@ -20,7 +20,7 @@ FmConfig fmDefaultConfig(void)
 
 static bool operatorConfigValid(const FmOperatorConfig *config)
 {
-    return config->waveform >= WAVE_SINE && config->waveform <= WAVE_PULSE &&
+    return config->waveform >= WAVE_SINE && config->waveform < WAVE_COUNT &&
            isfinite(config->pulseWidth) && config->pulseWidth > 0.0 && config->pulseWidth < 1.0 &&
            isfinite(config->vibratoRateHz) && config->vibratoRateHz >= 0.0 &&
            isfinite(config->vibratoDepthCents) && config->vibratoDepthCents >= 0.0 &&

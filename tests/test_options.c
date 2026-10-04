@@ -173,6 +173,14 @@ int main(void)
     reject("--master-adsr", "1,2,101,4");
     reject("--master-adsr", "1,2,50");
     reject("--master-adsr", "1,2,50,4,5");
+    char *noiseFx[] = {"synth", "--op2-waveform", "noise", "--echo-mix", "0.4",
+                       "--echo-delay", "275", "--echo-feedback", "0.5", "--reverb-mix", "0.2"};
+    CHECK(parseOptions(11, noiseFx, &config, error, sizeof(error)) == 0);
+    CHECK(config.layers[0].fm.operators[1].waveform == WAVE_NOISE && config.effects.echoDelayMs == 275);
+    CHECK(config.effects.echoMix == .4 && config.effects.reverbMix == .2);
+    reject("--echo-delay", "0"); reject("--echo-delay", "2001");
+    reject("--echo-feedback", "1"); reject("--reverb-room", "1");
+    reject("--reverb-damping", "nan"); reject("--echo-mix", "-1");
     puts("Command-line defaults, modes, units, and validation checks passed.");
     return 0;
 }

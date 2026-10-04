@@ -36,6 +36,15 @@ static int noteForKey(SDL_Keycode key)
     case SDLK_i: return 84; /* C6 */
     case SDLK_o: return 86; /* D6 */
     case SDLK_p: return 88; /* E6 */
+    case SDLK_1: return 84; /* C6 */
+    case SDLK_2: return 86; /* D6 */
+    case SDLK_3: return 88; /* E6 */
+    case SDLK_4: return 89; /* F6 */
+    case SDLK_5: return 90; /* G6 */
+    case SDLK_6: return 91; /* A6 */
+    case SDLK_7: return 92; /* B6 */
+    case SDLK_8: return 93; /* C7 */
+    case SDLK_9: return 94; /* D7 */
     default: return -1;
     }
 }

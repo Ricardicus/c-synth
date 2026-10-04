@@ -13,6 +13,7 @@ const char *oscillatorWaveformName(Waveform waveform)
     case WAVE_TRIANGLE: return "triangle";
     case WAVE_SAWTOOTH: return "sawtooth";
     case WAVE_PULSE: return "pulse";
+    case WAVE_NOISE: return "noise";
     default: return "unknown";
     }
 }
@@ -23,7 +24,7 @@ bool oscillatorParseWaveform(const char *name, Waveform *waveform)
         *waveform = WAVE_SAWTOOTH;
         return true;
     }
-    for (int i = WAVE_SINE; i <= WAVE_PULSE; ++i) {
+    for (int i = WAVE_SINE; i < WAVE_COUNT; ++i) {
         if (strcmp(name, oscillatorWaveformName((Waveform)i)) == 0) {
             *waveform = (Waveform)i;
             return true;
@@ -34,6 +35,7 @@ bool oscillatorParseWaveform(const char *name, Waveform *waveform)
 
 void oscillatorInit(Oscillator *oscillator, double sampleRate)
 {
+    oscillator->noiseState = 0x6d2b79f5u;
     oscillator->phase = 0.0;
     oscillator->sampleRate = sampleRate;
     oscillator->waveform = WAVE_SINE;
@@ -55,7 +57,7 @@ int oscillatorSetVibrato(Oscillator *oscillator, double rateHz, double depthCent
 
 int oscillatorSetWaveform(Oscillator *oscillator, Waveform waveform)
 {
-    if (waveform < WAVE_SINE || waveform > WAVE_PULSE)
+    if (waveform < WAVE_SINE || waveform >= WAVE_COUNT)
         return -1;
     oscillator->waveform = waveform;
     return 0;
@@ -99,6 +101,13 @@ float oscillatorNextSample(Oscillator *oscillator, double frequencyHz)
     case WAVE_PULSE:
         sample = cycle < oscillator->pulseWidth ? 1.0f : -1.0f;
         break;
+    case WAVE_NOISE: {
+        uint32_t state = oscillator->noiseState ? oscillator->noiseState : 0x6d2b79f5u;
+        state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+        oscillator->noiseState = state;
+        sample = (float)((state >> 8) / 8388607.5 - 1.0);
+        break;
+    }
     default:
         return 0.0f;
     }
