@@ -324,6 +324,8 @@ void spectrogramDestroy(Spectrogram *view)
 #define PRESET_LIST_Y 48
 
 static const SDL_Rect presetBox = {80, 10, 450, 38};
+static const SDL_Rect previousPresetButton = {30, 10, 38, 38};
+static const SDL_Rect nextPresetButton = {540, 10, 38, 38};
 static const int knobRows[KNOB_COUNT] = {2, 3, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
 static const int selectorRows[6] = {0, 1, 4, 5, 6, 9};
 
@@ -521,8 +523,8 @@ static void drawKnob(Spectrogram *view, int index)
 
 static const SDL_Rect savePresetButton = {80, 58, 215, 38};
 static const SDL_Rect deletePresetButton = {315, 58, 215, 38};
-static const SDL_Rect effectsPageButton = {550, 10, 175, 38};
-static const SDL_Rect midiPageButton = {745, 10, 235, 38};
+static const SDL_Rect effectsPageButton = {598, 10, 155, 38};
+static const SDL_Rect midiPageButton = {773, 10, 207, 38};
 static const SDL_Rect midiBrowseButton = {100, 170, 235, 42};
 static const SDL_Rect midiPlayButton = {100, 290, 160, 42};
 static const SDL_Rect midiStopButton = {290, 290, 160, 42};
@@ -733,6 +735,8 @@ static void drawControls(Spectrogram *view)
     SDL_SetRenderDrawColor(r, 145, 165, 186, 255);
     text(view, PANEL_X + 215, 746, "SHIFT FOR FINE CONTROL");
     button(view, presetBox, presetName(view, view->preset), view->presetOpen);
+    button(view, previousPresetButton, "<", false);
+    button(view, nextPresetButton, ">", false);
     /* Dropdown indicator. */
     for (int i = 0; i < 7; ++i)
         SDL_RenderDrawLine(r, 500 + i, 24 + i, 514 - i, 24 + i);
@@ -997,6 +1001,13 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
             if (direction) view->equationScroll = (int)fmax(0, view->equationScroll - direction * 3);
             return 1;
         }
+    }
+    if (!view->equationPage && click &&
+        (inside(x,y,previousPresetButton) || inside(x,y,nextPresetButton))) {
+        int step = inside(x,y,nextPresetButton) ? 1 : -1;
+        int preset = view->preset < 0 ? (step > 0 ? 0 : view->library.count - 1) :
+                     (view->preset + step + view->library.count) % view->library.count;
+        return loadPreset(view, preset);
     }
     if (!view->equationPage && !view->presetOpen && click && inside(x,y,midiPageButton)) {
         view->equationPage=4; return 1;

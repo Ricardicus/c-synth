@@ -68,10 +68,16 @@ retain independent articulation. Presets include their output envelope settings.
 Open the preset dropdown above the spectrogram, scroll through the list, and
 click one entry to replace the complete sound. Up/Down, Home/End and Enter also
 select an entry while the list is open; Escape or an outside click dismisses it.
-Available presets:
-Classic FM, Pure sine, Warm triangle, Saw lead, Pulse bass, Electric piano,
-Glass bell, Metal chime, Soft organ, Wide pad, Brass, Space wobble, and Flute.
-Flute uses a soft sine FM tone, quiet breath noise, gentle vibrato, and light reverb.
+The **<** and **>** buttons beside the dropdown select the previous or next
+preset, including saved settings, and wrap around at the ends of the list.
+The factory bank contains **64 presets**. The original 13 sounds are followed by
+families of flutes, reeds/brass, keys, bells, basses, leads, pads, plucks, and effects.
+Flutes include Concert, Alto, Bass, Piccolo, Bamboo, Pan, and Dream variations,
+with different FM brightness, breath levels, vibrato, articulation, and ambience.
+Try Keys Tine EP, Bell Singing Bowl, Bass Rubber FM, Lead Liquid, Pad Aurora,
+Pluck Echo Harp, or FX Cosmic Transmission. Alto/Bass/Piccolo flutes and several
+basses deliberately transpose the played note; Pad Fifth Horizon layers a fifth.
+See [the factory sound guide](presets/README.md) for the complete bank and playing tips.
 Editing a sound changes its label to **Custom**. Startup command-line settings
 populate the panel. Click **Save setting** beneath the preset dropdown, enter a name, and click
 Save or press Enter. Saved sounds are appended to the dropdown and reappear after

@@ -102,7 +102,9 @@ int main(void)
         CHECK(synthAudioSnapshot(samples, &position) == 48000);
         double energy = 0;
         for (int j = 0; j < SYNTH_ANALYSIS_SAMPLES; ++j) {
-            CHECK(isfinite(samples[j]) && fabs(samples[j]) <= .101);
+            /* Wet effects can add to the dry voice, including tails from the
+             * preceding patch during this rapid live-switching exercise. */
+            CHECK(isfinite(samples[j]) && fabs(samples[j]) < .2);
             energy += samples[j] * samples[j];
         }
         CHECK(energy > .001);

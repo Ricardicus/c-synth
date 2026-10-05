@@ -53,12 +53,23 @@ int main(void)
     click(v, 100, 25);
     SDL_Event e = {0};
     e.type = SDL_MOUSEWHEEL; e.wheel.y = -1;
-    for (int i = 0; i < 10; ++i) CHECK(spectrogramEvent(v, &e) == 1);
+    for (int i = 0; i < SYNTH_PRESET_COUNT; ++i) CHECK(spectrogramEvent(v, &e) == 1);
     CHECK(v->presetScroll == SYNTH_PRESET_COUNT - PRESET_VISIBLE);
     click(v, 100, PRESET_LIST_Y + 7 * PRESET_ITEM_H + 10);
-    CHECK(v->preset == 12 && !v->presetOpen);
-    CHECK(v->config.layers[1].fm.operators[0].waveform == WAVE_NOISE);
+    CHECK(v->preset == SYNTH_PRESET_COUNT - 1 && !v->presetOpen);
+    CHECK(!strcmp(presetName(v, v->preset), "FX Starfall"));
+    CHECK(v->config.layers[0].fm.operatorCount == 3);
+    /* Adjacent arrows step through the same library and wrap at either end. */
+    click(v, 555, 25);
+    CHECK(v->preset == 0);
+    click(v, 45, 25);
+    CHECK(v->preset == SYNTH_PRESET_COUNT - 1);
+    click(v, 45, 25);
+    CHECK(v->preset == SYNTH_PRESET_COUNT - 2);
+    click(v, 555, 25);
+    CHECK(v->preset == SYNTH_PRESET_COUNT - 1);
     SynthConfig baseline = synthPresetConfig(11);
+    baseline.outputEnvelope.sustainPercent = 100; /* Exercise the knob's upper clamp. */
     CHECK(synthConfigure(&baseline) == 0);
     spectrogramSetConfig(v, &baseline);
     /* Upward dragging increases gain; release ends the drag. */
@@ -92,7 +103,7 @@ int main(void)
     e.key.keysym.sym = SDLK_END;
     CHECK(spectrogramEvent(v, &e) == 1);
     e.key.keysym.sym = SDLK_RETURN;
-    CHECK(spectrogramEvent(v, &e) == 1 && v->preset == 12);
+    CHECK(spectrogramEvent(v, &e) == 1 && v->preset == SYNTH_PRESET_COUNT - 1);
     CHECK(spectrogramDraw(v) == 0);
     baseline = synthPresetConfig(11);
     CHECK(synthConfigure(&baseline) == 0);
@@ -156,7 +167,7 @@ int main(void)
     outputFunctions(v, &functions);
     for (int i = 0; i < functions.count; ++i) CHECK(strstr(functions.lines[i], "/0.00") == NULL);
     /* Equation views are readable pages, and Escape returns without quitting. */
-    click(v, 765, 25);
+    click(v, 795, 25);
     CHECK(v->equationPage == 4);
     click(v, 360, 35);
     CHECK(v->equationPage == 1);
@@ -167,7 +178,7 @@ int main(void)
     e.type = SDL_KEYDOWN; e.key.keysym.sym = SDLK_ESCAPE;
     CHECK(spectrogramEvent(v, &e) == 1 && v->equationPage == 0);
     CHECK(spectrogramDraw(v) == 0);
-    click(v, 570, 25);
+    click(v, 620, 25);
     CHECK(v->equationPage == 3);
     CHECK(spectrogramDraw(v) == 0);
     for (int i = SOUND_KNOBS; i < KNOB_COUNT; ++i) {
@@ -219,7 +230,7 @@ int main(void)
         'M','T','r','k',0,0,0,13,0,0x90,60,100,0x83,0x60,0x80,60,0,0,0xff,0x2f,0 };
     FILE *song=fopen(songPath,"wb"); CHECK(song); CHECK(fwrite(midiBytes,1,sizeof(midiBytes),song)==sizeof(midiBytes)); CHECK(fclose(song)==0);
     CHECK(fileBrowserOpen(&v->browser,presetFolder,issue,sizeof(issue))==0);
-    click(v,765,25); CHECK(v->equationPage==4);
+    click(v,795,25); CHECK(v->equationPage==4);
     click(v,110,185); CHECK(v->browserOpen);
     int fileIndex=-1;
     for (int i=0;i<v->browser.count;++i) if (!strcmp(v->browser.entries[i].name,"song.mid")) fileIndex=i;

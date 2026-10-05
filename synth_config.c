@@ -3,6 +3,12 @@
 #include <math.h>
 #include <stddef.h>
 
+#include "factory_bank.inc"
+
+enum { ORIGINAL_PRESETS = 13 };
+_Static_assert(ORIGINAL_PRESETS + sizeof(factoryRecipes) / sizeof(factoryRecipes[0]) ==
+               SYNTH_PRESET_COUNT, "Factory preset count must match the bank");
+
 SynthConfig synthDefaultConfig(void)
 {
     SynthConfig config = {.layerCount = 1, .outputEnvelope = {5, 0, 100, 5}};
@@ -34,17 +40,33 @@ bool synthConfigValid(const SynthConfig *config)
 
 const char *synthPresetName(int index)
 {
-    static const char *names[SYNTH_PRESET_COUNT] = {
+    static const char *names[ORIGINAL_PRESETS] = {
         "Classic FM", "Pure sine", "Warm triangle", "Saw lead",
         "Pulse bass", "Electric piano", "Glass bell", "Metal chime",
         "Soft organ", "Wide pad", "Brass", "Space wobble", "Flute"
     };
-    return index >= 0 && index < SYNTH_PRESET_COUNT ? names[index] : "Custom";
+    if (index < 0 || index >= SYNTH_PRESET_COUNT) return "Custom";
+    return index < ORIGINAL_PRESETS ? names[index] : factoryRecipes[index - ORIGINAL_PRESETS].name;
 }
 
 SynthConfig synthPresetConfig(int index)
 {
     SynthConfig c = synthDefaultConfig();
+    if (index >= ORIGINAL_PRESETS && index < SYNTH_PRESET_COUNT) {
+        const FactoryRecipe *recipe = &factoryRecipes[index - ORIGINAL_PRESETS];
+        c.outputEnvelope = recipe->envelope;
+        c.effects = recipe->effects;
+        c.layerCount = recipe->layerCount;
+        for (int l = 0; l < c.layerCount; ++l) {
+            const SynthLayerConfig *source = &recipe->layers[l];
+            c.layers[l].gain = source->gain;
+            c.layers[l].detuneCents = source->detuneCents;
+            c.layers[l].fm.operatorCount = source->fm.operatorCount;
+            for (int op = 0; op < source->fm.operatorCount; ++op)
+                c.layers[l].fm.operators[op] = source->fm.operators[op];
+        }
+        return c;
+    }
     FmConfig *f = &c.layers[0].fm;
     FmOperatorConfig *m = &f->operators[0], *carrier = &f->operators[1];
     switch (index) {
@@ -52,20 +74,34 @@ SynthConfig synthPresetConfig(int index)
         f->operatorCount = 1;
         m->waveform = index == 1 ? WAVE_SINE : index == 2 ? WAVE_TRIANGLE :
                       index == 3 ? WAVE_SAWTOOTH : WAVE_PULSE;
-        if (index == 4) m->ratio = 0.5;
+        if (index == 3) {
+            c.outputEnvelope = (SynthEnvelopeConfig){8, 180, 85, 120};
+            c.effects.reverbMix = .08;
+            c.layers[0].gain = .85;
+        }
+        if (index == 4) {
+            m->ratio = 0.5;
+            c.outputEnvelope = (SynthEnvelopeConfig){5, 220, 70, 90};
+            c.layers[0].gain = .8;
+        }
         break;
     case 5:
+        c.effects.reverbMix = .12;
         c.outputEnvelope = (SynthEnvelopeConfig){5, 900, 20, 350};
         m->ratio = 2; m->rm = 2.5; m->indexMode = FM_INDEX_ADSR;
         m->attackMs = 2; m->decayMs = 650; m->sustainPercent = 12; m->releaseMs = 350;
         break;
     case 6: case 7:
+        c.effects.reverbMix = .18;
+        c.effects.reverbDamping = .45;
         c.outputEnvelope = (SynthEnvelopeConfig){2, 2200, 0, 1200};
         m->ratio = index == 6 ? 3.5 : 7.13; m->rm = index == 6 ? 1.8 : 3;
         m->indexMode = FM_INDEX_ADSR; m->attackMs = 0; m->decayMs = 1800;
         m->sustainPercent = 0; m->releaseMs = 1200;
         break;
     case 8:
+        c.outputEnvelope = (SynthEnvelopeConfig){12, 0, 100, 100};
+        c.effects.reverbMix = .14;
         c.layerCount = 3;
         for (int i = 0; i < 3; ++i) {
             c.layers[i].fm.operatorCount = 1;
@@ -74,6 +110,8 @@ SynthConfig synthPresetConfig(int index)
         }
         break;
     case 9:
+        c.effects.reverbMix = .24;
+        c.effects.reverbDamping = .65;
         c.outputEnvelope = (SynthEnvelopeConfig){700, 900, 75, 1000};
         c.layerCount = 3;
         for (int i = 0; i < 3; ++i) {
@@ -85,12 +123,15 @@ SynthConfig synthPresetConfig(int index)
         }
         break;
     case 10:
+        c.effects.reverbMix = .1;
         c.outputEnvelope = (SynthEnvelopeConfig){100, 250, 80, 180};
         m->rm = 3; m->indexMode = FM_INDEX_ADSR; m->attackMs = 100;
         m->decayMs = 250; m->sustainPercent = 55; m->releaseMs = 180;
         carrier->waveform = WAVE_TRIANGLE;
         break;
     case 11:
+        c.outputEnvelope = (SynthEnvelopeConfig){25, 350, 80, 450};
+        c.effects = (SynthEffectsConfig){.18, 340, .35, .2, .75, .55};
         m->ratio = 0.5; m->rm = 5; m->vibratoRateHz = 2; m->vibratoDepthCents = 300;
         carrier->vibratoRateHz = 4; carrier->vibratoDepthCents = 25;
         break;
