@@ -21,6 +21,14 @@ cmake --build build
 ./build/keyboard_synth
 ```
 
+The audio engine builds as **libcsynth.a**, with no SDL or other third-party
+dependencies. The window uses the separate `csynth::sdl` audio adapter.
+To use it in another program, link the CMake target `csynth::csynth`.
+[The libcsynth API doc](docs/libcsynth-api.md) covers notes, live patch edits,
+presets, audio snapshots, and rendering samples yourself. For a library-only
+build, pass `-DCSYNTH_BUILD_APP=OFF -DCSYNTH_BUILD_SDL_ADAPTER=OFF`;
+SDL2 and FreeType are then unnecessary, including for the core tests.
+
 Focus the SDL window and hold keys to play. Multiple keys produce chords.
 
 | Row | Keys (left to right) | Notes (left to right) |

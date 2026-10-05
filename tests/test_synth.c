@@ -1,4 +1,4 @@
-#include "synth.h"
+#include "synth_sdl.h"
 #include "spectrum.h"
 
 #include <SDL.h>
@@ -35,16 +35,16 @@ int main(void)
     config.layers[1].fm.operators[0].indexMode = FM_INDEX_ADSR;
     config.layers[1].fm.operators[0].releaseMs = 200;
     config.layers[1].fm.operators[1].ratio = 2;
-    CHECK(synthInitWithLayers(&config) == 0);
+    CHECK(sdlSynthInitWithLayers(&config) == 0);
     float samples[SYNTH_ANALYSIS_SAMPLES];
     uint64_t position;
-    CHECK(synthAudioSnapshot(samples, &position) == 48000);
-    registerNote(69);
-    registerNote(69);
-    registerNote(-1);
-    registerNote(128);
+    CHECK(sdlSynthAudioSnapshot(samples, &position) == 48000);
+    sdlSynthRegisterNote(69);
+    sdlSynthRegisterNote(69);
+    sdlSynthRegisterNote(-1);
+    sdlSynthRegisterNote(128);
     SDL_Delay(150);
-    CHECK(synthAudioSnapshot(samples, &position) == 48000);
+    CHECK(sdlSynthAudioSnapshot(samples, &position) == 48000);
     CHECK(position >= SYNTH_ANALYSIS_SAMPLES);
     for (int i = 0; i < SYNTH_ANALYSIS_SAMPLES; ++i)
         CHECK(isfinite(samples[i]) && fabs(samples[i]) <= 0.101);
@@ -54,52 +54,52 @@ int main(void)
     /* Both independent carriers must survive mixing into the output. */
     CHECK(peak(&spectrum, 17, 21) > -29 && peak(&spectrum, 17, 21) < -25);
     CHECK(peak(&spectrum, 35, 40) > -30 && peak(&spectrum, 35, 40) < -25);
-    deregisterNote(69);
-    deregisterNote(69);
+    sdlSynthDeregisterNote(69);
+    sdlSynthDeregisterNote(69);
     SDL_Delay(90);
-    CHECK(synthAudioSnapshot(samples, &position) == 48000);
+    CHECK(sdlSynthAudioSnapshot(samples, &position) == 48000);
     spectrumCompute(&spectrum, samples);
     /* Both layers share the master amplitude release. */
     CHECK(peak(&spectrum, 17, 21) > -35 && peak(&spectrum, 17, 21) < -28);
     CHECK(peak(&spectrum, 35, 40) > -35 && peak(&spectrum, 35, 40) < -28);
     SDL_Delay(200);
-    CHECK(synthAudioSnapshot(samples, &position) == 48000);
+    CHECK(sdlSynthAudioSnapshot(samples, &position) == 48000);
     spectrumCompute(&spectrum, samples);
     CHECK(peak(&spectrum, 0, SPECTRUM_BINS - 1) == -90);
     /* Reconfigure a held voice: the carrier must move without another note-on. */
     config = synthPresetConfig(1);
-    CHECK(synthConfigure(&config) == 0);
-    registerNote(69);
+    CHECK(sdlSynthConfigure(&config) == 0);
+    sdlSynthRegisterNote(69);
     SDL_Delay(100);
-    CHECK(synthAudioSnapshot(samples, &position) == 48000);
+    CHECK(sdlSynthAudioSnapshot(samples, &position) == 48000);
     spectrumCompute(&spectrum, samples);
     CHECK(peak(&spectrum, 17, 21) > -25);
     config.layers[0].fm.operators[0].ratio = 3;
-    CHECK(synthConfigure(&config) == 0);
+    CHECK(sdlSynthConfigure(&config) == 0);
     SDL_Delay(100);
-    CHECK(synthAudioSnapshot(samples, &position) == 48000);
+    CHECK(sdlSynthAudioSnapshot(samples, &position) == 48000);
     spectrumCompute(&spectrum, samples);
     CHECK(peak(&spectrum, 54, 59) > -25);
     CHECK(peak(&spectrum, 17, 21) < -60);
     float fullVolumePeak = peak(&spectrum, 54, 59);
     /* Live output sustain changes amplitude without releasing the held note. */
     config.outputEnvelope.sustainPercent = 25;
-    CHECK(synthConfigure(&config) == 0);
+    CHECK(sdlSynthConfigure(&config) == 0);
     SDL_Delay(100);
-    CHECK(synthAudioSnapshot(samples, &position) == 48000);
+    CHECK(sdlSynthAudioSnapshot(samples, &position) == 48000);
     spectrumCompute(&spectrum, samples);
     CHECK(fabs((fullVolumePeak - peak(&spectrum, 54, 59)) - 12.0412) < .15);
     SynthConfig invalid = config;
     invalid.layerCount = 0;
-    CHECK(synthConfigure(&invalid) == -1);
+    CHECK(sdlSynthConfigure(&invalid) == -1);
     for (int i = 0; i < SYNTH_PRESET_COUNT; ++i) {
-        deregisterNote(69);
+        sdlSynthDeregisterNote(69);
         config = synthPresetConfig(i);
         CHECK(synthConfigValid(&config));
-        CHECK(synthConfigure(&config) == 0);
-        registerNote(69);
+        CHECK(sdlSynthConfigure(&config) == 0);
+        sdlSynthRegisterNote(69);
         SDL_Delay(50);
-        CHECK(synthAudioSnapshot(samples, &position) == 48000);
+        CHECK(sdlSynthAudioSnapshot(samples, &position) == 48000);
         double energy = 0;
         for (int j = 0; j < SYNTH_ANALYSIS_SAMPLES; ++j) {
             /* Wet effects can add to the dry voice, including tails from the
@@ -109,55 +109,55 @@ int main(void)
         }
         CHECK(energy > .001);
     }
-    deregisterNote(69);
-    synthShutdown();
-    CHECK(synthAudioSnapshot(samples, &position) == 0);
+    sdlSynthDeregisterNote(69);
+    sdlSynthShutdown();
+    CHECK(sdlSynthAudioSnapshot(samples, &position) == 0);
     /* The flute's fundamental dominates the breath layer and higher partials. */
     config = synthPresetConfig(12);
-    CHECK(synthInitWithLayers(&config) == 0);
-    registerNote(72);
+    CHECK(sdlSynthInitWithLayers(&config) == 0);
+    sdlSynthRegisterNote(72);
     SDL_Delay(220);
-    CHECK(synthAudioSnapshot(samples, &position) == 48000);
+    CHECK(sdlSynthAudioSnapshot(samples, &position) == 48000);
     spectrumCompute(&spectrum, samples);
     CHECK(peak(&spectrum, 20, 25) > -32);
     CHECK(peak(&spectrum, 20, 25) > peak(&spectrum, 40, 500) + 12);
-    synthShutdown();
+    sdlSynthShutdown();
     /* Echo survives note-off and appears in the captured final audio output. */
     config = synthPresetConfig(1);
     config.outputEnvelope.releaseMs = 0;
     config.effects.echoMix = .7;
     config.effects.echoDelayMs = 100;
     config.effects.echoFeedback = .4;
-    CHECK(synthInitWithLayers(&config) == 0);
-    registerNote(69);
+    CHECK(sdlSynthInitWithLayers(&config) == 0);
+    sdlSynthRegisterNote(69);
     SDL_Delay(80);
-    deregisterNote(69);
+    sdlSynthDeregisterNote(69);
     SDL_Delay(60);
-    CHECK(synthAudioSnapshot(samples, &position) == 48000);
+    CHECK(sdlSynthAudioSnapshot(samples, &position) == 48000);
     double tailEnergy = 0;
     for (int i = 0; i < SYNTH_ANALYSIS_SAMPLES; ++i) tailEnergy += samples[i] * samples[i];
     CHECK(tailEnergy > .01);
-    synthShutdown();
+    sdlSynthShutdown();
     config=synthPresetConfig(1);
-    CHECK(synthInitWithLayers(&config)==0);
-    registerNote(69); registerMidiNoteWithVelocity(69,32);
+    CHECK(sdlSynthInitWithLayers(&config)==0);
+    sdlSynthRegisterNote(69); sdlSynthRegisterMidiNoteWithVelocity(69,32);
     SDL_Delay(100);
-    CHECK(synthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
+    CHECK(sdlSynthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
     float manualPeak=peak(&spectrum,17,21);
-    deregisterMidiNote(69); /* Stopping MIDI must leave the keyboard note sounding. */
+    sdlSynthDeregisterMidiNote(69); /* Stopping MIDI must leave the keyboard note sounding. */
     SDL_Delay(100);
-    CHECK(synthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
+    CHECK(sdlSynthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
     CHECK(fabs(peak(&spectrum,17,21)-manualPeak)<.1);
-    registerMidiNoteWithVelocity(69,32); deregisterNote(69);
+    sdlSynthRegisterMidiNoteWithVelocity(69,32); sdlSynthDeregisterNote(69);
     SDL_Delay(100);
-    CHECK(synthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
+    CHECK(sdlSynthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
     CHECK(fabs((manualPeak-peak(&spectrum,17,21))-20*log10(127.0/32))<.15);
-    deregisterMidiNote(69); SDL_Delay(100);
-    CHECK(synthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
+    sdlSynthDeregisterMidiNote(69); SDL_Delay(100);
+    CHECK(sdlSynthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
     CHECK(peak(&spectrum,0,SPECTRUM_BINS-1)==-90);
-    synthShutdown();
-    CHECK(synthInit() == 0);
-    synthShutdown();
+    sdlSynthShutdown();
+    CHECK(sdlSynthInit() == 0);
+    sdlSynthShutdown();
     SDL_Quit();
     puts("Layer mixing, output snapshot, note release, and reinitialization checks passed.");
     return 0;

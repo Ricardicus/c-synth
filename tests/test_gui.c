@@ -21,7 +21,7 @@ int main(void)
     SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
     SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
     CHECK(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == 0);
-    CHECK(synthInit() == 0);
+    CHECK(sdlSynthInit() == 0);
     SDL_Window *w = SDL_CreateWindow("UI test", 0, 0, 1640, 780, SDL_WINDOW_RESIZABLE);
     CHECK(w != NULL);
     Spectrogram *v = spectrogramCreate(w, 1);
@@ -70,11 +70,11 @@ int main(void)
     CHECK(v->preset == SYNTH_PRESET_COUNT - 1);
     SynthConfig baseline = synthPresetConfig(11);
     baseline.outputEnvelope.sustainPercent = 100; /* Exercise the knob's upper clamp. */
-    CHECK(synthConfigure(&baseline) == 0);
+    CHECK(sdlSynthConfigure(&baseline) == 0);
     spectrogramSetConfig(v, &baseline);
     /* Upward dragging increases gain; release ends the drag. */
     v->config.layers[0].gain = .5;
-    CHECK(synthConfigure(&v->config) == 0);
+    CHECK(sdlSynthConfigure(&v->config) == 0);
     click(v, 1160, 194);
     e.type = SDL_MOUSEMOTION; e.motion.x = 1160; e.motion.y = 154;
     CHECK(spectrogramEvent(v, &e) == 1);
@@ -106,7 +106,7 @@ int main(void)
     CHECK(spectrogramEvent(v, &e) == 1 && v->preset == SYNTH_PRESET_COUNT - 1);
     CHECK(spectrogramDraw(v) == 0);
     baseline = synthPresetConfig(11);
-    CHECK(synthConfigure(&baseline) == 0);
+    CHECK(sdlSynthConfigure(&baseline) == 0);
     spectrogramSetConfig(v, &baseline);
     /* Envelope timing remains precise with Shift after speeding up normal drag. */
     int attackBefore = v->config.outputEnvelope.attackMs;
@@ -257,7 +257,7 @@ int main(void)
         SDL_FreeSurface(surface);
     }
     spectrogramDestroy(v);
-    synthShutdown();
+    sdlSynthShutdown();
     SDL_DestroyWindow(w);
     SDL_Quit();
     char userFolder[1024]; snprintf(userFolder,sizeof(userFolder),"%s/user",presetFolder);

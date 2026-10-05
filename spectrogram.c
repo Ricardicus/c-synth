@@ -1,6 +1,6 @@
 #include "spectrogram.h"
 #include "spectrum.h"
-#include "synth.h"
+#include "synth_sdl.h"
 #include "presets.h"
 #include "midi.h"
 #include "file_browser.h"
@@ -65,8 +65,8 @@ static const char *presetName(const Spectrogram *view, int index)
 static void midiNote(void *context, int note, bool on, int velocity)
 {
     Spectrogram *view = context;
-    if (on) { registerMidiNoteWithVelocity(note, velocity); spectrogramNote(view, note); }
-    else deregisterMidiNote(note);
+    if (on) { sdlSynthRegisterMidiNoteWithVelocity(note, velocity); spectrogramNote(view, note); }
+    else sdlSynthDeregisterMidiNote(note);
 }
 static uint64_t midiNow(void) { return SDL_GetTicks64() * 1000; }
 
@@ -210,7 +210,7 @@ int spectrogramDraw(Spectrogram *view)
 {
     midiPlayerTick(&view->midi, midiNow());
     uint64_t position = 0;
-    int sampleRate = synthAudioSnapshot(view->samples, &position);
+    int sampleRate = sdlSynthAudioSnapshot(view->samples, &position);
     if (sampleRate == 0)
         return SDL_SetError("Audio stopped during spectrogram rendering");
     double maxHz = fmin(20000.0, sampleRate / 2.0);
@@ -442,7 +442,7 @@ static int changeRow(Spectrogram *view, int row, double direction)
     view->selectedOperator = (int)fmin(view->selectedOperator,
         view->config.layers[view->selectedLayer].fm.operatorCount - 1);
     if (row == 1 || row == 5) return 0;
-    if (synthConfigure(&view->config) != 0) { view->config = old; return -1; }
+    if (sdlSynthConfigure(&view->config) != 0) { view->config = old; return -1; }
     view->layerCount = view->config.layerCount;
     view->preset = -1;
     return 0;
@@ -903,7 +903,7 @@ static int loadPreset(Spectrogram *view, int preset)
 {
     if (preset < 0 || preset >= view->library.count) return 0;
     SynthConfig config = view->library.items[preset].config;
-    if (synthConfigure(&config) != 0) return -1;
+    if (sdlSynthConfigure(&config) != 0) return -1;
     spectrogramSetConfig(view, &config);
     view->preset = preset;
     view->presetOpen = false;
@@ -1019,7 +1019,7 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         view->presetDialog = save ? 1 : 2;
         view->presetName[0] = 0; view->presetError[0] = 0;
         if (save) {
-            for (int note = 0; note < 128; ++note) deregisterNote(note);
+            for (int note = 0; note < 128; ++note) sdlSynthDeregisterNote(note);
             SDL_StartTextInput();
         }
         return 1;

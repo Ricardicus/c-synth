@@ -1,4 +1,4 @@
-#include "synth.h"
+#include "synth_sdl.h"
 #include "options.h"
 #include "spectrogram.h"
 
@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
         SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     if (window != NULL)
         SDL_SetWindowMinimumSize(window, 1230, 585);
-    if (window == NULL || synthInitWithLayers(&config) != 0) {
+    if (window == NULL || sdlSynthInitWithLayers(&config) != 0) {
         fprintf(stderr, "Synth startup failed: %s\n", SDL_GetError());
         if (window != NULL)
             SDL_DestroyWindow(window);
@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
     Spectrogram *view = spectrogramCreate(window, config.layerCount);
     if (view == NULL) {
         fprintf(stderr, "Spectrogram startup failed: %s\n", SDL_GetError());
-        synthShutdown();
+        sdlSynthShutdown();
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
@@ -140,7 +140,7 @@ int main(int argc, char *argv[])
                             spectrogramNote(view, note);
                             heldKeyNotes[key] = note + 1;
                             if (noteHolds[note]++ == 0)
-                                registerNote(note);
+                                sdlSynthRegisterNote(note);
                         }
                     }
                     break;
@@ -151,14 +151,14 @@ int main(int argc, char *argv[])
                     if (note >= 0) {
                         heldKeyNotes[key] = 0;
                         if (--noteHolds[note] == 0)
-                            deregisterNote(note);
+                            sdlSynthDeregisterNote(note);
                     }
                     break;
                 }
                 case SDL_WINDOWEVENT:
                     if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                         for (int note = 0; note < 128; ++note)
-                            deregisterNote(note);
+                            sdlSynthDeregisterNote(note);
                         memset(heldKeyNotes, 0, sizeof(heldKeyNotes));
                         memset(noteHolds, 0, sizeof(noteHolds));
                     }
@@ -178,7 +178,7 @@ int main(int argc, char *argv[])
     }
 
     spectrogramDestroy(view);
-    synthShutdown();
+    sdlSynthShutdown();
     SDL_DestroyWindow(window);
     SDL_Quit();
     return result;
