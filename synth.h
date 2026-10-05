@@ -26,5 +26,9 @@ int synthAudioSnapshot(float *samples, uint64_t *samplePosition);
  * Registering an already held note is harmless. Multiple notes can play. */
 void registerNote(int note);
 void deregisterNote(int note);
+/* Independent MIDI ownership keeps manual and file-played notes from cutting each other off. */
+void registerMidiNote(int note);
+void registerMidiNoteWithVelocity(int note, int velocity);
+void deregisterMidiNote(int note);
 
 #endif

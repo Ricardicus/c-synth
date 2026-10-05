@@ -136,6 +136,24 @@ int main(void)
     for (int i = 0; i < SYNTH_ANALYSIS_SAMPLES; ++i) tailEnergy += samples[i] * samples[i];
     CHECK(tailEnergy > .01);
     synthShutdown();
+    config=synthPresetConfig(1);
+    CHECK(synthInitWithLayers(&config)==0);
+    registerNote(69); registerMidiNoteWithVelocity(69,32);
+    SDL_Delay(100);
+    CHECK(synthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
+    float manualPeak=peak(&spectrum,17,21);
+    deregisterMidiNote(69); /* Stopping MIDI must leave the keyboard note sounding. */
+    SDL_Delay(100);
+    CHECK(synthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
+    CHECK(fabs(peak(&spectrum,17,21)-manualPeak)<.1);
+    registerMidiNoteWithVelocity(69,32); deregisterNote(69);
+    SDL_Delay(100);
+    CHECK(synthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
+    CHECK(fabs((manualPeak-peak(&spectrum,17,21))-20*log10(127.0/32))<.15);
+    deregisterMidiNote(69); SDL_Delay(100);
+    CHECK(synthAudioSnapshot(samples,&position)==48000); spectrumCompute(&spectrum,samples);
+    CHECK(peak(&spectrum,0,SPECTRUM_BINS-1)==-90);
+    synthShutdown();
     CHECK(synthInit() == 0);
     synthShutdown();
     SDL_Quit();

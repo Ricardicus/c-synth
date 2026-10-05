@@ -39,8 +39,10 @@ The right side of the window contains live sound controls. Drag a knob upward to
 over a knob for small steps. Ratio, FM depth, index decay rate, and vibrato rate
 use 0.01 steps; detune and vibrato depth use 0.1 cent steps. Decimal knobs drag
 continuously and support fractional trackpad scrolling. Hold Shift while dragging
-or scrolling for ten times finer adjustment. Envelope times use 1 ms steps and
-sustain uses 1 percent steps.
+or scrolling for finer adjustment. Attack, decay, and release use 25 ms steps
+normally and 1 ms steps with Shift, for both operator and master envelopes.
+Other decimal controls use ten times finer adjustment with Shift; sustain uses
+1 percent steps.
 Discrete choices (layer/operator selection, counts, waveform and envelope mode)
 use **-** / **+** selectors. Select a layer and operator to edit their
 settings; the layer and operator count controls add or remove parts of the
@@ -50,7 +52,8 @@ available modes. The final operator is the output carrier: its FM depth and
 index envelope are unused. Operator envelopes control FM timbre. The four **Master Output ADSR** knobs
 below the spectrogram control the combined layers' volume for each note: attack
 and decay in milliseconds, sustain in percent, and release in milliseconds.
-Open **FM equations** or **Output ADSR** beside the preset dropdown for dedicated
+The top row is **Preset → Effects → MIDI player**, above the spectrogram heading.
+Open **Effects** or **MIDI player**, then choose **FM equations** or **Output ADSR** for dedicated
 views with large, smooth text and raw functions. Equations substitute the
 configured waveform (`sin`, `triangle`, `pulse`, etc.) and numeric settings
 formatted to two decimal places. Frequencies follow the most recently played
@@ -62,7 +65,7 @@ monospace font (Menlo, DejaVu Sans Mono, Liberation Mono, or Consolas); set
 Master edits affect sounding notes; each note has its own envelope so chords
 retain independent articulation. Presets include their output envelope settings.
 
-Open the preset dropdown below the spectrogram, scroll through the list, and
+Open the preset dropdown above the spectrogram, scroll through the list, and
 click one entry to replace the complete sound. Up/Down, Home/End and Enter also
 select an entry while the list is open; Escape or an outside click dismisses it.
 Available presets:
@@ -70,9 +73,21 @@ Classic FM, Pure sine, Warm triangle, Saw lead, Pulse bass, Electric piano,
 Glass bell, Metal chime, Soft organ, Wide pad, Brass, Space wobble, and Flute.
 Flute uses a soft sine FM tone, quiet breath noise, gentle vibrato, and light reverb.
 Editing a sound changes its label to **Custom**. Startup command-line settings
-populate the panel; edits and preset selections last for the current session.
+populate the panel. Click **Save setting** beneath the preset dropdown, enter a name, and click
+Save or press Enter. Saved sounds are appended to the dropdown and reappear after
+restarting. Names can contain up to 32 letters/numbers, spaces, hyphens and
+underscores. Duplicate names are rejected, so existing presets are preserved.
+Select a saved preset and click **Delete setting** to remove its file; deleting
+keeps the current sound loaded as Custom. Factory presets cannot be deleted.
 
-Open **Effects** next to the master ADSR controls to adjust echo mix, delay (1–2000 ms),
+The dedicated `presets/` folder contains `factory/*.synth` (the shipped sounds)
+and `user/*.synth` (your saved sounds). Files use a versioned, readable text format
+and store all layers/operators, including inactive settings, master ADSR, and
+effects at full floating-point precision. Invalid user files are skipped at startup.
+The executable defaults to this project's preset folder regardless of its working
+directory; set `SYNTH_PRESET_DIR` to use a different folder.
+
+Open **Effects** in the top row to adjust echo mix, delay (1–2000 ms),
 and feedback, plus reverb mix, room size, and damping. Effects apply after all notes
 and their output envelopes are mixed, so echoes and reverb continue after note-off.
 Echo feeds into reverb. Mix 0 bypasses the wet signal; effects default to off except
@@ -90,6 +105,19 @@ feedback/room values are 0–0.95. For example:
 **Noise** is a white-noise waveform with an independent random generator for each
 voice/layer/operator. Use it as a carrier for noise or as a modulator for a noisy
 FM tone. Its output is independent of oscillator pitch and phase.
+
+Click **MIDI player** in the top row to open the MIDI section. Use
+**Browse MIDI file** to navigate folders and select a `.mid` or `.midi` file.
+**Play** starts or resumes, **Stop** pauses and releases MIDI-held notes, and
+**Restart** plays from the beginning. A time counter and progress bar show playback.
+You can return to the sound controls and change the patch while the file plays.
+
+MIDI formats 0 and 1 are supported, including tempo changes, running status,
+sustain pedal, velocity, and SMPTE timing. All channels use the current synth
+sound; General MIDI instrument/drum mappings and live MIDI input are not included.
+Events are dispatched by the main loop (roughly every 16 ms). Manual keyboard
+notes and MIDI notes have separate ownership, so stopping one leaves the other
+sounding. Master release and effect tails continue after Stop.
 
 The window shows a live spectrogram of the combined audio output.
 Frequency runs upward on a logarithmic scale from 40 Hz to 20 kHz (or

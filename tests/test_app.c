@@ -1,3 +1,4 @@
+#include "test_temp.h"
 /* Exercise the real application with a backend warning on an empty event
  * queue, reproducing the condition that previously caused a fatal exit. */
 #define SDL_MAIN_HANDLED
@@ -52,7 +53,7 @@ static int inputThread(void *userdata)
     SDL_Event click = {0};
     click.type = SDL_MOUSEBUTTONDOWN;
     click.button.button = SDL_BUTTON_LEFT;
-    click.button.x = 100; click.button.y = 620;
+    click.button.x = 100; click.button.y = 25;
     if (SDL_PushEvent(&click) != 1) return 1;
     SDL_Event select = {0};
     select.type = SDL_KEYDOWN;
@@ -60,11 +61,11 @@ static int inputThread(void *userdata)
     if (SDL_PushEvent(&select) != 1) return 1;
     select.key.keysym.sym = SDLK_RETURN;
     if (SDL_PushEvent(&select) != 1) return 1;
-    click.button.x = 1112; click.button.y = 310;
+    click.button.x = 1160; click.button.y = 194;
     if (SDL_PushEvent(&click) != 1) return 1;
     SDL_Event motion = {0};
     motion.type = SDL_MOUSEMOTION;
-    motion.motion.x = 1112; motion.motion.y = 280;
+    motion.motion.x = 1160; motion.motion.y = 164;
     if (SDL_PushEvent(&motion) != 1) return 1;
     click.type = SDL_MOUSEBUTTONUP;
     if (SDL_PushEvent(&click) != 1) return 1;
@@ -79,6 +80,9 @@ static int inputThread(void *userdata)
 
 int main(void)
 {
+    char folder[1024];
+    if (!testTempDirectory(folder,sizeof(folder),"app")) return 1;
+    SDL_setenv("SYNTH_PRESET_DIR",folder,1);
     SDL_SetMainReady();
     SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
     SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
@@ -97,6 +101,7 @@ int main(void)
                 result, threadResult, backendNotices);
         return 1;
     }
+    if (TEST_RMDIR(folder)!=0) return 1;
     puts("Application survives backend touch warnings and handles keys, rendering, and quit.");
     return 0;
 }

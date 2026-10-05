@@ -18,12 +18,14 @@ typedef struct {
 typedef struct {
     OutputEnvelope envelope;
     double frequency;
+    double midiVelocity, velocityGain;
     bool held;
     bool active;
     LayerVoice layers[SYNTH_MAX_LAYERS];
 } Voice;
 
 static Voice voices[NOTE_COUNT];
+static unsigned char noteSources[NOTE_COUNT];
 static SDL_AudioDeviceID device;
 static int sampleRate;
 static int layerCount;
@@ -44,7 +46,11 @@ static void audioCallback(void *userdata, Uint8 *stream, int length)
             Voice *voice = &voices[note];
             if (!voice->active)
                 continue;
-            double amplitude = outputEnvelopeNext(&voice->envelope, sampleRate);
+            double velocity = (noteSources[note] & 1) ? 1.0 :
+                              (noteSources[note] & 2) ? voice->midiVelocity : voice->velocityGain;
+            double gainStep = 1.0 / (.005 * sampleRate);
+            voice->velocityGain += fmax(-gainStep, fmin(gainStep, velocity - voice->velocityGain));
+            double amplitude = outputEnvelopeNext(&voice->envelope, sampleRate) * voice->velocityGain;
             for (int layer = 0; layer < layerCount; ++layer) {
                 LayerVoice *part = &voice->layers[layer];
                 sample += 0.1 * amplitude * part->mixGain *
@@ -84,6 +90,7 @@ int synthInitWithLayers(const SynthConfig *config)
         return SDL_SetError("Invalid synth configuration");
 
     layerCount = config->layerCount;
+    memset(noteSources, 0, sizeof(noteSources));
     memset(analysisSamples, 0, sizeof(analysisSamples));
     analysisCursor = 0;
     samplePosition = 0;
@@ -198,12 +205,14 @@ int synthAudioSnapshot(float *samples, uint64_t *position)
     return sampleRate;
 }
 
-void registerNote(int note)
+static void noteOn(int note, unsigned char source, int velocity)
 {
     if (device == 0 || note < 0 || note >= NOTE_COUNT)
         return;
     SDL_LockAudioDevice(device);
     Voice *voice = &voices[note];
+    if (source == 2) voice->midiVelocity = fmax(0, fmin(127, velocity)) / 127.0;
+    noteSources[note] |= source;
     if (!voice->held) {
         bool reset = voice->envelope.level == 0;
         outputEnvelopeOn(&voice->envelope);
@@ -217,13 +226,14 @@ void registerNote(int note)
     SDL_UnlockAudioDevice(device);
 }
 
-void deregisterNote(int note)
+static void noteOff(int note, unsigned char source)
 {
     if (device == 0 || note < 0 || note >= NOTE_COUNT)
         return;
     SDL_LockAudioDevice(device);
     Voice *voice = &voices[note];
-    if (voice->held) {
+    noteSources[note] &= (unsigned char)~source;
+    if (voice->held && !noteSources[note]) {
         voice->held = false;
         outputEnvelopeOff(&voice->envelope);
         for (int layer = 0; layer < layerCount; ++layer) {
@@ -233,3 +243,9 @@ void deregisterNote(int note)
     }
     SDL_UnlockAudioDevice(device);
 }
+
+void registerNote(int note) { noteOn(note, 1, 127); }
+void deregisterNote(int note) { noteOff(note, 1); }
+void registerMidiNote(int note) { noteOn(note, 2, 127); }
+void deregisterMidiNote(int note) { noteOff(note, 2); }
+void registerMidiNoteWithVelocity(int note, int velocity) { noteOn(note, 2, velocity); }
