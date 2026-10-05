@@ -21,13 +21,19 @@ cmake --build build
 ./build/keyboard_synth
 ```
 
-The audio engine builds as **libcsynth.a**, with no SDL or other third-party
-dependencies. The window uses the separate `csynth::sdl` audio adapter.
-To use it in another program, link the CMake target `csynth::csynth`.
-[The libcsynth API doc](libcsynth/docs/libcsynth-api.md) covers notes, live patch edits,
-presets, audio snapshots, and rendering samples yourself. For a library-only
-build, use `cmake -S libcsynth -B libcsynth/build`. SDL2 and FreeType are
-unnecessary for that build, including for the core tests.
+CMake downloads [libcsynth](https://github.com/Ricardicus/libcsynth) during
+configuration and builds it before linking the app. The first configure needs
+Git and internet access; later builds reuse the checkout under `build/_deps/`.
+The default revision is pinned in `CSYNTH_GIT_TAG` so a new upstream commit
+won't unexpectedly change this build. To choose a newer revision, configure
+with `-DCSYNTH_GIT_TAG=<commit-or-tag>`.
+
+The core is SDL-free. This project's `csynth::sdl` adapter handles device
+playback. See the upstream [API doc](https://github.com/Ricardicus/libcsynth/blob/master/docs/libcsynth-api.md)
+for notes, live edits, snapshots, and rendering samples yourself.
+
+For an existing checkout, skip the download with
+`-DFETCHCONTENT_SOURCE_DIR_LIBCSYNTH=/absolute/path/to/libcsynth`.
 
 Focus the SDL window and hold keys to play. Multiple keys produce chords.
 
@@ -85,7 +91,7 @@ with different FM brightness, breath levels, vibrato, articulation, and ambience
 Try Keys Tine EP, Bell Singing Bowl, Bass Rubber FM, Lead Liquid, Pad Aurora,
 Pluck Echo Harp, or FX Cosmic Transmission. Alto/Bass/Piccolo flutes and several
 basses deliberately transpose the played note; Pad Fifth Horizon layers a fifth.
-See [the factory sound guide](libcsynth/presets/README.md) for the complete bank and playing tips.
+See [the factory sound guide](https://github.com/Ricardicus/libcsynth/blob/master/presets/README.md) for the complete bank and playing tips.
 Editing a sound changes its label to **Custom**. Startup command-line settings
 populate the panel. Click **Save setting** beneath the preset dropdown, enter a name, and click
 Save or press Enter. Saved sounds are appended to the dropdown and reappear after
@@ -94,12 +100,14 @@ underscores. Duplicate names are rejected, so existing presets are preserved.
 Select a saved preset and click **Delete setting** to remove its file; deleting
 keeps the current sound loaded as Custom. Factory presets cannot be deleted.
 
-The dedicated `libcsynth/presets/` folder contains `factory/*.synth` (the shipped sounds)
+The dedicated `presets/` folder contains `factory/*.synth` (the shipped sounds)
 and `user/*.synth` (your saved sounds). Files use a versioned, readable text format
 and store all layers/operators, including inactive settings, master ADSR, and
 effects at full floating-point precision. Invalid user files are skipped at startup.
-The executable defaults to this project's preset folder regardless of its working
-directory; set `SYNTH_PRESET_DIR` to use a different folder.
+CMake copies the downloaded factory sounds into this folder; saved sounds stay
+outside the dependency checkout. Set the CMake `SYNTH_PRESET_DIR` cache variable
+to choose a different default folder. The executable uses that folder regardless of its working
+directory; set the `SYNTH_PRESET_DIR` environment variable to override it at runtime.
 
 Open **Effects** in the top row to adjust echo mix, delay (1–2000 ms),
 and feedback, plus reverb mix, room size, and damping. Effects apply after all notes
@@ -280,18 +288,18 @@ More starting points are in [suggestions.txt](suggestions.txt).
 
 ## C API
 
-The reusable core is in [`libcsynth/`](libcsynth/README.md). Its public headers
-are in `libcsynth/include/`, implementations in `libcsynth/src/`, and its own
-CMake project builds without the keyboard app. Start with `synthCreate()`, send
-notes with `synthNoteOn()` / `synthNoteOff()`, and call `synthRender()` to fill a
-mono float buffer. `synthConfigure()` applies settings to held and future notes.
-See the [API doc](libcsynth/docs/libcsynth-api.md) for complete examples.
+The reusable core comes from [Ricardicus/libcsynth](https://github.com/Ricardicus/libcsynth).
+CMake's `FetchContent` downloads the configured revision and provides the
+`csynth::csynth` target. There is no bundled copy of the engine here.
+Start with `synthCreate()`, send notes with `synthNoteOn()` / `synthNoteOff()`,
+and call `synthRender()` to fill a mono float buffer. `synthConfigure()` applies
+settings to held and future notes. See the upstream
+[API doc](https://github.com/Ricardicus/libcsynth/blob/master/docs/libcsynth-api.md).
 
 The app's `main.c` handles keyboard input. `synth_sdl.h` / `synth_sdl.c` adapt the
 core to SDL device playback, requesting mono float audio at 48 kHz with
 256-sample buffers. The adapter uses the device's obtained sample rate and locks
-the audio callback around main-thread note and settings updates. The core has
-no device or UI dependencies and can be copied into a separate repository.
+the audio callback around main-thread note and settings updates.
 
 ## Checks
 

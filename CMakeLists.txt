@@ -7,7 +7,18 @@ if(CSYNTH_BUILD_APP AND NOT CSYNTH_BUILD_SDL_ADAPTER)
     message(FATAL_ERROR "The SDL app needs CSYNTH_BUILD_SDL_ADAPTER=ON")
 endif()
 include(CTest)
-add_subdirectory(libcsynth)
+include(FetchContent)
+set(CSYNTH_GIT_TAG "2b887373bbd14cfdf041bef9430dfe9182425f56" CACHE STRING
+    "libcsynth commit or tag to download")
+FetchContent_Declare(libcsynth
+    GIT_REPOSITORY https://github.com/Ricardicus/libcsynth.git
+    GIT_TAG ${CSYNTH_GIT_TAG})
+FetchContent_MakeAvailable(libcsynth)
+
+# Keep saved sounds outside the downloaded dependency checkout.
+set(SYNTH_PRESET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/presets" CACHE PATH
+    "App preset folder (factory sounds and saved settings)")
+file(COPY "${libcsynth_SOURCE_DIR}/presets/factory" DESTINATION "${SYNTH_PRESET_DIR}")
 
 function(app_compile_options target)
     set_target_properties(${target} PROPERTIES C_EXTENSIONS OFF)
@@ -39,7 +50,7 @@ if(CSYNTH_BUILD_APP)
     if(TARGET SDL2::SDL2main)
         target_link_libraries(keyboard_synth PRIVATE SDL2::SDL2main)
     endif()
-    target_compile_definitions(keyboard_synth PRIVATE SYNTH_DEFAULT_PRESET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/libcsynth/presets")
+    target_compile_definitions(keyboard_synth PRIVATE SYNTH_DEFAULT_PRESET_DIR="${SYNTH_PRESET_DIR}")
     app_compile_options(keyboard_synth)
 endif()
 
