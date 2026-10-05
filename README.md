@@ -24,10 +24,10 @@ cmake --build build
 The audio engine builds as **libcsynth.a**, with no SDL or other third-party
 dependencies. The window uses the separate `csynth::sdl` audio adapter.
 To use it in another program, link the CMake target `csynth::csynth`.
-[The libcsynth API doc](docs/libcsynth-api.md) covers notes, live patch edits,
+[The libcsynth API doc](libcsynth/docs/libcsynth-api.md) covers notes, live patch edits,
 presets, audio snapshots, and rendering samples yourself. For a library-only
-build, pass `-DCSYNTH_BUILD_APP=OFF -DCSYNTH_BUILD_SDL_ADAPTER=OFF`;
-SDL2 and FreeType are then unnecessary, including for the core tests.
+build, use `cmake -S libcsynth -B libcsynth/build`. SDL2 and FreeType are
+unnecessary for that build, including for the core tests.
 
 Focus the SDL window and hold keys to play. Multiple keys produce chords.
 
@@ -85,7 +85,7 @@ with different FM brightness, breath levels, vibrato, articulation, and ambience
 Try Keys Tine EP, Bell Singing Bowl, Bass Rubber FM, Lead Liquid, Pad Aurora,
 Pluck Echo Harp, or FX Cosmic Transmission. Alto/Bass/Piccolo flutes and several
 basses deliberately transpose the played note; Pad Fifth Horizon layers a fifth.
-See [the factory sound guide](presets/README.md) for the complete bank and playing tips.
+See [the factory sound guide](libcsynth/presets/README.md) for the complete bank and playing tips.
 Editing a sound changes its label to **Custom**. Startup command-line settings
 populate the panel. Click **Save setting** beneath the preset dropdown, enter a name, and click
 Save or press Enter. Saved sounds are appended to the dropdown and reappear after
@@ -94,7 +94,7 @@ underscores. Duplicate names are rejected, so existing presets are preserved.
 Select a saved preset and click **Delete setting** to remove its file; deleting
 keeps the current sound loaded as Custom. Factory presets cannot be deleted.
 
-The dedicated `presets/` folder contains `factory/*.synth` (the shipped sounds)
+The dedicated `libcsynth/presets/` folder contains `factory/*.synth` (the shipped sounds)
 and `user/*.synth` (your saved sounds). Files use a versioned, readable text format
 and store all layers/operators, including inactive settings, master ADSR, and
 effects at full floating-point precision. Invalid user files are skipped at startup.
@@ -280,65 +280,18 @@ More starting points are in [suggestions.txt](suggestions.txt).
 
 ## C API
 
-`main.c` handles keyboard events. `synth.h` exposes `synthInit()`,
-`synthInitWithConfig(const FmConfig *)`, `synthInitWithLayers(const SynthConfig *)`,
-`synthShutdown()`, `registerNote(int)`,
-and `deregisterNote(int)`. `synthInit()` uses default FM settings.
-Note integers are MIDI numbers (0–127); `synth.c` builds an internal
-frequency lookup with A4 = 440 Hz. Invalid numbers are ignored.
+The reusable core is in [`libcsynth/`](libcsynth/README.md). Its public headers
+are in `libcsynth/include/`, implementations in `libcsynth/src/`, and its own
+CMake project builds without the keyboard app. Start with `synthCreate()`, send
+notes with `synthNoteOn()` / `synthNoteOff()`, and call `synthRender()` to fill a
+mono float buffer. `synthConfigure()` applies settings to held and future notes.
+See the [API doc](libcsynth/docs/libcsynth-api.md) for complete examples.
 
-SDL2 renders mono floating-point audio through a callback at 48 kHz (or
-the device's supported sample rate), requesting 256-sample buffers.
-Each active note has an independent FM generator per layer. The callback does no allocation
-or I/O. Note updates use SDL's
-audio-device lock. Call the public API from the main thread.
-
-`fm.h` / `fm.c` provide the sound-generation entry point independently of SDL:
-
-```c
-FmConfig config = fmDefaultConfig();
-config.operatorCount = 3;
-config.operators[0].ratio = 2.0; /* OP1 */
-config.operators[0].rm = 3.0;
-config.operators[1].rm = 1.5;    /* OP2 -> OP3 */
-config.operators[2].waveform = WAVE_TRIANGLE;
-config.operators[2].vibratoRateHz = 5.0;
-config.operators[2].vibratoDepthCents = 15.0;
-FmSynth generator;
-if (fmInit(&generator, 48000.0, &config) != 0) {
-    return 1; /* Invalid configuration. */
-}
-fmNoteOn(&generator, true);
-float sample = fmNextSample(&generator, 440.0);
-/* Continue calling once per sample; on key release: */
-fmNoteOff(&generator);
-/* Continue rendering the release while fading its output amplitude. */
-```
-
-`fmNextSample` takes the base frequency in Hz and returns one sample in
-[-1, 1]. Extend `FmSynth` and this function to add more complex generation.
-`synth.c` handles note lookup, amplitude fades, mixing, and SDL output.
-`oscillator.h` / `oscillator.c` provide waveform generation and vibrato; signed
-frequencies run phase backwards, and zero frequency holds phase.
-
-For layers, initialize a `SynthConfig` with `synthDefaultConfig()`, set
-`layerCount` and each `layers[i].fm`, `gain`, and `detuneCents`, then call
-`synthInitWithLayers()`. `synthAudioSnapshot()` returns the latest combined
-output for analysis. Oscillators can also be used directly:
-
-```c
-Oscillator oscillator;
-oscillatorInit(&oscillator, 48000.0);
-oscillatorSetWaveform(&oscillator, WAVE_PULSE);
-oscillatorSetPulseWidth(&oscillator, 0.3);
-oscillatorSetVibrato(&oscillator, 5.0, 20.0);
-float sample = oscillatorNextSample(&oscillator, 440.0);
-```
-
-SDL2 reference: [audio callbacks](https://wiki.libsdl.org/SDL2/SDL_OpenAudioDevice)
-and [audio-device locking](https://wiki.libsdl.org/SDL2/SDL_LockAudioDevice).
-The view uses SDL2's [streaming textures](https://wiki.libsdl.org/SDL2/SDL_LockTexture)
-and [logical rendering size](https://wiki.libsdl.org/SDL2/SDL_RenderSetLogicalSize).
+The app's `main.c` handles keyboard input. `synth_sdl.h` / `synth_sdl.c` adapt the
+core to SDL device playback, requesting mono float audio at 48 kHz with
+256-sample buffers. The adapter uses the device's obtained sample rate and locks
+the audio callback around main-thread note and settings updates. The core has
+no device or UI dependencies and can be copied into a separate repository.
 
 ## Checks
 

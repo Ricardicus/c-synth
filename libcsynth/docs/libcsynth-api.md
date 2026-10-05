@@ -7,10 +7,10 @@ samples to whatever audio system your project uses.
 
 ## Build and link
 
-For the core library and its tests, without the app or audio adapter:
+From the libcsynth folder, build the library and its tests:
 
 ```sh
-cmake -S . -B build-lib -DCSYNTH_BUILD_APP=OFF -DCSYNTH_BUILD_SDL_ADAPTER=OFF
+cmake -S . -B build-lib
 cmake --build build-lib
 ctest --test-dir build-lib --output-on-failure
 ```
@@ -22,10 +22,8 @@ dependencies. Add `-DBUILD_TESTING=OFF` if you only want the library.
 In another project using this repo as a subdirectory:
 
 ```cmake
-set(CSYNTH_BUILD_APP OFF CACHE BOOL "" FORCE)
-set(CSYNTH_BUILD_SDL_ADAPTER OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-add_subdirectory(path/to/synth-garage synth-build)
+set(CSYNTH_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(path/to/libcsynth synth-build)
 add_executable(my_player player.c)
 target_link_libraries(my_player PRIVATE csynth::csynth)
 ```
@@ -87,7 +85,7 @@ changes the patch after one second, and releases the chord after two. It uses
 no audio device:
 
 ```sh
-cmake -S . -B build-lib -DCSYNTH_BUILD_APP=OFF -DCSYNTH_BUILD_SDL_ADAPTER=OFF -DCSYNTH_BUILD_EXAMPLES=ON
+cmake -S . -B build-lib -DCSYNTH_BUILD_EXAMPLES=ON
 cmake --build build-lib --target csynth_live
 ./build-lib/csynth_live my-chord.wav
 ```
@@ -317,16 +315,9 @@ processing/configuration doesn't. These helpers don't all validate arguments
 for you: use validators and a finite positive sample rate. Own each instance
 on one thread. For phase-preserving whole-patch edits, use the full engine.
 
-## The optional SDL adapter
+## Audio backends
 
-For the keyboard app, `csynth::sdl` links the core and SDL2. It is built when
-`CSYNTH_BUILD_SDL_ADAPTER=ON`; the app enables it by default. It isn't part of
-the installed core package. Include `synth_sdl.h` in an app using this adapter.
-
-Its `sdlSynthInit*()`, `sdlSynthShutdown()`, `sdlSynthConfigure()`,
-`sdlSynthRegisterNote()`/`sdlSynthDeregisterNote()`, MIDI equivalents, and
-`sdlSynthAudioSnapshot()` manage one playback engine and lock the device around
-control calls. Initialize audio before starting it and stop it before quitting
-the backend. Those calls belong on one control thread and report failures
-through the backend error API. Projects with their own audio system only need
-`synth.h` and `csynth::csynth`.
+This library doesn't ship an audio backend. The keyboard app in the parent
+project has its own SDL adapter, outside this folder. It calls `synthRender()`
+from its device callback and locks the device around control calls. Your own
+project can use the same pattern with whichever audio backend it already has.
