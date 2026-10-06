@@ -8,6 +8,7 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <math.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +33,12 @@ struct Spectrogram {
     MidiPlayer midi;
     FileBrowser browser;
     bool browserOpen;
+    int browserPurpose; /* 0 MIDI, 1 recording, 2 sample map */
+    struct { char path[BROWSER_PATH_MAX]; char hz[24]; } sampleRows[SYNTH_SAMPLE_MAX_ENTRIES];
+    int sampleCount, sampleScroll, sampleSelected, sampleEdit;
+    size_t appliedSamples;
+    char sampleError[128];
+    char sampleStatus[128];
     char midiPath[BROWSER_PATH_MAX];
     char midiError[128];
     PresetLibrary library;
@@ -165,6 +172,8 @@ Spectrogram *spectrogramCreate(SDL_Window *window, int layerCount)
     view->config = synthDefaultConfig();
     view->preset = -1;
     view->dragRow = -1;
+    view->sampleEdit = -1;
+    view->sampleSelected = -1;
     view->equationFrequency = 440.0;
     view->layerCount = layerCount;
     const char *folder = getenv("SYNTH_PRESET_DIR");
@@ -291,7 +300,7 @@ int spectrogramDraw(Spectrogram *view)
     SDL_SetRenderDrawColor(renderer, 190, 204, 222, 255);
     text(view, 620, 510, "-80 DB");
     text(view, 932, 510, "0 DB");
-    text(view, PLOT_X, 550, "Z-M A-L Q-P PLAY - ESC QUITS");
+    text(view, 550, 610, "Z-M A-L Q-P PLAY - ESC QUITS");
     drawControls(view);
     if (view->presetDialog) drawPresetDialog(view);
     SDL_RenderPresent(renderer);
@@ -308,7 +317,7 @@ void spectrogramDestroy(Spectrogram *view)
         SDL_DestroyTexture(view->font);
     if (view->renderer != NULL)
         SDL_DestroyRenderer(view->renderer);
-    if (view->presetDialog == 1) SDL_StopTextInput();
+    if (view->presetDialog == 1 || view->sampleEdit >= 0) SDL_StopTextInput();
     midiPlayerDestroy(&view->midi);
     presetLibraryDestroy(&view->library);
     free(view);
@@ -316,9 +325,9 @@ void spectrogramDestroy(Spectrogram *view)
 
 /* Controls share their geometry between drawing and hit testing. */
 #define PANEL_X 1020
-#define CONTROL_ROWS 28
-#define SOUND_KNOBS 16
-#define KNOB_COUNT 22
+#define CONTROL_ROWS 30
+#define SOUND_KNOBS 18
+#define KNOB_COUNT 24
 #define PRESET_VISIBLE 8
 #define PRESET_ITEM_H 30
 #define PRESET_LIST_Y 48
@@ -326,7 +335,7 @@ void spectrogramDestroy(Spectrogram *view)
 static const SDL_Rect presetBox = {80, 10, 450, 38};
 static const SDL_Rect previousPresetButton = {30, 10, 38, 38};
 static const SDL_Rect nextPresetButton = {540, 10, 38, 38};
-static const int knobRows[KNOB_COUNT] = {2, 3, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
+static const int knobRows[KNOB_COUNT] = {2, 3, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 28, 29, 22, 23, 24, 25, 26, 27};
 static const int selectorRows[6] = {0, 1, 4, 5, 6, 9};
 
 static const char *rowNames[CONTROL_ROWS] = {
@@ -335,7 +344,7 @@ static const char *rowNames[CONTROL_ROWS] = {
     "Index envelope", "Index decay rate", "Attack ms", "Decay ms",
     "Sustain percent", "Release ms", "Pulse width", "Vibrato Hz",
     "Vibrato cents", "Attack ms", "Decay ms", "Sustain percent", "Release ms",
-    "Echo mix", "Echo delay ms", "Echo feedback", "Reverb mix", "Room size", "Damping"
+    "Echo mix", "Echo delay ms", "Echo feedback", "Reverb mix", "Room size", "Damping", "Low-pass Hz", "High-pass Hz"
 };
 
 void spectrogramSetConfig(Spectrogram *view, const SynthConfig *config)
@@ -382,14 +391,25 @@ static void rowValue(Spectrogram *view, int row, char *value, size_t size)
     case 25: number = view->config.effects.reverbMix; break;
     case 26: number = view->config.effects.reverbRoom; break;
     case 27: number = view->config.effects.reverbDamping; break;
+    case 28: number = view->config.filters.lowpassHz; break;
+    case 29: number = view->config.filters.highpassHz; break;
     default: value[0] = 0; return;
     }
-    snprintf(value, size, "%.2f", number);
+    if ((row == 28 || row == 29) && number == 0) snprintf(value, size, "Off");
+    else snprintf(value, size, "%.2f", number);
 }
 
 static double adjust(double value, double step, double direction, double low, double high)
 {
     return fmax(low, fmin(high, value + step * direction));
+}
+
+static double adjustCutoff(double value, double direction)
+{
+    if (direction == 0 || (value == 0 && direction < 0)) return value;
+    if (value == 0) value = 20;
+    else value *= exp2(direction / 12.0);
+    return value < 20 ? 0 : fmin(20000, value);
 }
 
 static bool envelopeTimeKnob(int row)
@@ -436,6 +456,8 @@ static int changeRow(Spectrogram *view, int row, double direction)
     case 25: view->config.effects.reverbMix = adjust(view->config.effects.reverbMix, .01, direction, 0, 1); break;
     case 26: view->config.effects.reverbRoom = adjust(view->config.effects.reverbRoom, .01, direction, 0, .95); break;
     case 27: view->config.effects.reverbDamping = adjust(view->config.effects.reverbDamping, .01, direction, 0, 1); break;
+    case 28: view->config.filters.lowpassHz = adjustCutoff(view->config.filters.lowpassHz, direction); break;
+    case 29: view->config.filters.highpassHz = adjustCutoff(view->config.filters.highpassHz, direction); break;
     default: return 0;
     }
     view->selectedLayer = (int)fmin(view->selectedLayer, view->config.layerCount - 1);
@@ -468,6 +490,7 @@ static void disabledButton(Spectrogram *view, SDL_Rect rect, const char *label)
 static SDL_Rect knobRect(int index)
 {
     if (index >= SOUND_KNOBS) return (SDL_Rect){220 + ((index - SOUND_KNOBS) % 3) * 400, 180 + ((index - SOUND_KNOBS) / 3) * 180, 240, 104};
+    if (index == 16 || index == 17) return (SDL_Rect){80 + (index - 16) * 225, 542, 210, 104};
     if (index >= 12) return (SDL_Rect){80 + (index - 12) * 225, 670, 210, 104};
     if (index < 2) return (SDL_Rect){PANEL_X + index * 300, 142, 280, 104};
     int operatorIndex = index - 2;
@@ -496,8 +519,8 @@ static void circle(SDL_Renderer *r, int x, int y, int radius)
 
 static void drawKnob(Spectrogram *view, int index)
 {
-    static const double lows[KNOB_COUNT] = {0, -4800, .01, 0, 0, 0, 0, 0, 0, .05, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0};
-    static const double highs[KNOB_COUNT] = {1, 4800, 32, 32, 100, 10000, 10000, 100, 10000, .95, 50, 1200, 10000, 10000, 100, 10000, 1, 2000, .95, 1, .95, 1};
+    static const double lows[KNOB_COUNT] = {0, -4800, .01, 0, 0, 0, 0, 0, 0, .05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0};
+    static const double highs[KNOB_COUNT] = {1, 4800, 32, 32, 100, 10000, 10000, 100, 10000, .95, 50, 1200, 10000, 10000, 100, 10000, 20000, 20000, 1, 2000, .95, 1, .95, 1};
     int row = knobRows[index];
     SDL_Rect rect = knobRect(index);
     SDL_Renderer *r = view->renderer;
@@ -505,6 +528,7 @@ static void drawKnob(Spectrogram *view, int index)
     rowValue(view, row, value, sizeof(value));
     double number = strtod(value, NULL);
     double position = fmax(0, fmin(1, (number - lows[index]) / (highs[index] - lows[index])));
+    if (row == 28 || row == 29) position = number == 0 ? 0 : .05 + .95 * log(number / 20) / log(1000);
     /* Compress large ranges so useful low values occupy more of the dial. */
     if (row == 7 || row == 8 || row == 10 || row == 11 || row == 12 || row == 14 || row == 16 || row == 18 || row == 19 || row == 21)
         position = log1p(position * 99) / log(100);
@@ -524,6 +548,7 @@ static void drawKnob(Spectrogram *view, int index)
 static const SDL_Rect savePresetButton = {80, 58, 215, 38};
 static const SDL_Rect deletePresetButton = {315, 58, 215, 38};
 static const SDL_Rect effectsPageButton = {598, 10, 155, 38};
+static const SDL_Rect samplesPageButton = {598,58,382,38};
 static const SDL_Rect midiPageButton = {773, 10, 207, 38};
 static const SDL_Rect midiBrowseButton = {100, 170, 235, 42};
 static const SDL_Rect midiPlayButton = {100, 290, 160, 42};
@@ -642,6 +667,123 @@ static void outputFunctions(const Spectrogram *view, EquationLines *lines)
     addEquation(lines, "}");
 }
 
+#define SAMPLE_VISIBLE 8
+static const SDL_Rect sampleAdd = {100,145,200,40};
+static const SDL_Rect sampleMap = {320,145,200,40};
+static const SDL_Rect sampleApply = {540,145,200,40};
+static const SDL_Rect sampleFm = {780,145,190,40};
+static const SDL_Rect sampleMode = {990,145,230,40};
+static const SDL_Rect sampleRemove = {100,610,260,40};
+static const SDL_Rect sampleList = {100,235,1440,SAMPLE_VISIBLE*44};
+
+static void endSampleEdit(Spectrogram *view)
+{
+    if (view->sampleEdit >= 0) SDL_StopTextInput();
+    view->sampleEdit = -1;
+}
+static void applySampleDraft(Spectrogram *view)
+{
+    if (!view->sampleCount) {
+        snprintf(view->sampleError,sizeof(view->sampleError),"Add at least one recording first."); return;
+    }
+    SynthSampleBank *bank = synthSampleBankCreate();
+    if (!bank) { snprintf(view->sampleError,sizeof(view->sampleError),"Cannot allocate sample bank."); return; }
+    for (int i=0; i<view->sampleCount; ++i) {
+        char *end;
+        errno=0;
+        double hz=strtod(view->sampleRows[i].hz,&end);
+        if (errno || end==view->sampleRows[i].hz || *end || !isfinite(hz) || hz<1) {
+            snprintf(view->sampleError,sizeof(view->sampleError),"Row %d: enter a valid base frequency in Hz (at least 1).",i+1);
+            synthSampleBankDestroy(bank); return;
+        }
+        char error[128];
+        if (synthSampleBankAddFile(bank,view->sampleRows[i].path,hz,1.0,0,0,error,sizeof(error))) {
+            snprintf(view->sampleError,sizeof(view->sampleError),"Row %d: %.108s",i+1,error);
+            synthSampleBankDestroy(bank); return;
+        }
+    }
+    if (sdlSynthApplySampleBank(bank)) snprintf(view->sampleError,sizeof(view->sampleError),"%s",SDL_GetError());
+    else {
+        view->appliedSamples=synthSampleBankCount(bank); view->sampleError[0]=0;
+        snprintf(view->sampleStatus,sizeof(view->sampleStatus),"Applied %zu recordings. Keyboard and MIDI now play these samples.",view->appliedSamples);
+    }
+    synthSampleBankDestroy(bank);
+}
+static void drawSamples(Spectrogram *view)
+{
+    SDL_Renderer *r=view->renderer;
+    SDL_SetRenderDrawColor(r,101,218,233,255);
+    textScaled(view,100,95,"Sample instrument",3);
+    button(view,sampleAdd,"Add sound file",false);
+    button(view,sampleMap,"Load sample map",false);
+    button(view,sampleApply,"Apply files",false);
+    SynthSourceMode mode=sdlSynthGetSourceMode();
+    button(view,sampleFm,"FM source",mode==SYNTH_SOURCE_FM);
+    if (view->appliedSamples) button(view,sampleMode,"Sample source",mode==SYNTH_SOURCE_SAMPLES);
+    else disabledButton(view,sampleMode,"Sample source");
+    SDL_SetRenderDrawColor(r,232,239,249,255);
+    text(view,100,200,"Recordings to apply (scroll the list)");
+    text(view,1250,200,"Base Hz");
+    for (int row=0; row<SAMPLE_VISIBLE && view->sampleScroll+row<view->sampleCount; ++row) {
+        int i=view->sampleScroll+row;
+        int y=235+row*44;
+        const char *name=strrchr(view->sampleRows[i].path,'/');
+        name=name ? name+1 : view->sampleRows[i].path;
+        char label[112]; snprintf(label,sizeof(label),"%d. %.90s",i+1,name);
+        button(view,(SDL_Rect){100,y,1130,40},label,view->sampleSelected==i);
+        button(view,(SDL_Rect){1250,y,230,40},view->sampleRows[i].hz,view->sampleEdit==i);
+    }
+    if (!view->sampleCount) text(view,100,260,"Add a WAV or MP3, then click its Hz field to enter the recorded note's frequency.");
+    if (view->sampleSelected>=0) button(view,sampleRemove,"Remove selected file",false);
+    else disabledButton(view,sampleRemove,"Remove selected file");
+    SDL_SetRenderDrawColor(r,101,218,233,255);
+    char status[128]; snprintf(status,sizeof(status),"Source: %s | Bank: %zu samples | Draft: %d files",mode==SYNTH_SOURCE_SAMPLES ? "Samples" : "FM",view->appliedSamples,view->sampleCount);
+    text(view,390,622,status);
+    SDL_SetRenderDrawColor(r,255,175,150,255); text(view,100,662,view->sampleError);
+    SDL_SetRenderDrawColor(r,210,225,240,255);
+    text(view,100,695,view->sampleStatus[0] ? view->sampleStatus : "A3 = 220.00 Hz, A4 = 440.00 Hz, A5 = 880.00 Hz. One file works too.");
+    text(view,100,727,"Master ADSR, filters, echo and reverb stay active. Files play once; maps can define loops.");
+    text(view,100,749,"Hz: click to edit, Ctrl+A to replace, Enter to finish. Apply files commits changes.");
+}
+static int sampleControls(Spectrogram *view, int x, int y, bool click, int direction)
+{
+    if (!click) {
+        if (direction && inside(x,y,sampleList))
+            view->sampleScroll=(int)fmax(0,fmin(fmax(0,view->sampleCount-SAMPLE_VISIBLE),view->sampleScroll-direction));
+        return 1;
+    }
+    endSampleEdit(view);
+    if (inside(x,y,sampleAdd) || inside(x,y,sampleMap)) {
+        view->browserPurpose=inside(x,y,sampleMap) ? 2 : 1;
+        const char *dir=view->browser.directory[0] ? view->browser.directory : NULL;
+        if (!fileBrowserOpenFiltered(&view->browser,dir,view->browserPurpose==2 ? BROWSER_SAMPLE_MAP : BROWSER_AUDIO,view->sampleError,sizeof(view->sampleError))) {
+            view->sampleError[0]=0; view->browserOpen=true;
+            for (int note=0; note<128; ++note) sdlSynthDeregisterNote(note);
+        }
+    } else if (inside(x,y,sampleApply)) applySampleDraft(view);
+    else if (inside(x,y,sampleFm) || inside(x,y,sampleMode)) {
+        if (sdlSynthSetSourceMode(inside(x,y,sampleFm) ? SYNTH_SOURCE_FM : SYNTH_SOURCE_SAMPLES))
+            snprintf(view->sampleError,sizeof(view->sampleError),"%s",SDL_GetError());
+        else view->sampleError[0]=0;
+    } else if (inside(x,y,sampleRemove) && view->sampleSelected>=0) {
+        int i=view->sampleSelected;
+        memmove(&view->sampleRows[i],&view->sampleRows[i+1],(size_t)(view->sampleCount-i-1)*sizeof(view->sampleRows[0]));
+        --view->sampleCount; view->sampleSelected=-1;
+        view->sampleScroll=(int)fmin(view->sampleScroll,fmax(0,view->sampleCount-SAMPLE_VISIBLE));
+        snprintf(view->sampleStatus,sizeof(view->sampleStatus),"Draft changed. Click Apply files to replace the active bank.");
+    } else if (inside(x,y,sampleList)) {
+        int i=view->sampleScroll+(y-sampleList.y)/44;
+        if (i<view->sampleCount) {
+            view->sampleSelected=i;
+            if (x>=1250 && x<1480) {
+                view->sampleEdit=i; SDL_StartTextInput();
+                for (int note=0; note<128; ++note) sdlSynthDeregisterNote(note);
+            }
+        }
+    }
+    return 1;
+}
+
 static void drawEquations(Spectrogram *view)
 {
     button(view, soundPageButton, "Back to sound", false);
@@ -649,6 +791,8 @@ static void drawEquations(Spectrogram *view)
     button(view, (SDL_Rect){600, 20, 225, 42}, "Output ADSR", view->equationPage == 2);
     button(view, (SDL_Rect){860,20,225,42}, "Effects", view->equationPage == 3);
     button(view, (SDL_Rect){1120,20,225,42}, "MIDI player", view->equationPage == 4);
+    button(view,(SDL_Rect){1380,20,180,42},"Samples",view->equationPage==5);
+    if (view->equationPage==5) { drawSamples(view); return; }
     if (view->equationPage == 4) {
         SDL_SetRenderDrawColor(view->renderer, 101,218,233,255);
         textScaled(view,100,95,"MIDI files",3);
@@ -740,6 +884,8 @@ static void drawControls(Spectrogram *view)
     /* Dropdown indicator. */
     for (int i = 0; i < 7; ++i)
         SDL_RenderDrawLine(r, 500 + i, 24 + i, 514 - i, 24 + i);
+    text(view, 550, 550, "OUTPUT FILTERS");
+    text(view, 550, 578, "TURN DOWN TO BYPASS");
     text(view, 80, 650, "MASTER OUTPUT ADSR");
     button(view, savePresetButton, "Save setting", false);
     if (view->preset>=0 && !view->library.items[view->preset].builtin)
@@ -747,6 +893,7 @@ static void drawControls(Spectrogram *view)
     else disabledButton(view,deletePresetButton,"Delete setting");
     button(view, effectsPageButton, "Effects", false);
     button(view, midiPageButton, "MIDI player", false);
+    button(view, samplesPageButton, sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES ? "Samples (active)" : "Samples", false);
     if (view->presetOpen) {
         for (int i = 0; i < PRESET_VISIBLE && view->presetScroll + i < view->library.count; ++i) {
             int preset = view->presetScroll + i;
@@ -794,7 +941,7 @@ static void drawPresetDialog(Spectrogram *view)
 
 static void closePresetDialog(Spectrogram *view)
 {
-    if (view->presetDialog == 1) SDL_StopTextInput();
+    if (view->presetDialog == 1 || view->sampleEdit >= 0) SDL_StopTextInput();
     view->presetDialog = 0;
 }
 
@@ -856,17 +1003,41 @@ static void drawFileBrowser(Spectrogram *view)
         snprintf(label,sizeof(label),"%s%.95s",entry->directory ? "[Folder] " : "",entry->name);
         button(view,(SDL_Rect){210,225+i*38,1210,36},label,index==view->browser.selected);
     }
-    if (!view->browser.count) text(view,210,260,"No folders or MIDI files here.");
-    SDL_SetRenderDrawColor(r,255,175,150,255); text(view,210,627,view->midiError);
-    SDL_SetRenderDrawColor(r,210,225,240,255); text(view,210,662,"Click a folder or .mid/.midi file. Scroll to browse.");
+    if (!view->browser.count) text(view,210,260,"No matching files here.");
+    SDL_SetRenderDrawColor(r,255,175,150,255); text(view,210,627,view->browserPurpose ? view->sampleError : view->midiError);
+    SDL_SetRenderDrawColor(r,210,225,240,255); text(view,210,662,view->browserPurpose==1 ? "Choose a WAV or MP3 file. Scroll to browse." : view->browserPurpose==2 ? "Choose a .csamples map. Scroll to browse." : "Click a folder or .mid/.midi file. Scroll to browse.");
 }
 static void chooseMidiFile(Spectrogram *view,int index)
 {
     char path[BROWSER_PATH_MAX];
-    int chosen=fileBrowserChoose(&view->browser,index,path,sizeof(path),view->midiError,sizeof(view->midiError));
+    char *error=view->browserPurpose ? view->sampleError : view->midiError;
+    int chosen=fileBrowserChoose(&view->browser,index,path,sizeof(path),error,128);
     if (chosen!=1) return;
-    if (midiPlayerLoad(&view->midi,path,view->midiError,sizeof(view->midiError))) return;
-    strcpy(view->midiPath,path); view->midiError[0]=0; view->browserOpen=false;
+    if (view->browserPurpose==1) {
+        if (view->sampleCount==SYNTH_SAMPLE_MAX_ENTRIES) {
+            snprintf(error,128,"Maximum 128 recordings per bank."); return;
+        }
+        int i=view->sampleCount++;
+        strcpy(view->sampleRows[i].path,path); strcpy(view->sampleRows[i].hz,"440.00");
+        view->sampleSelected=i; view->sampleEdit=i;
+        view->sampleScroll=(int)fmax(0,view->sampleCount-SAMPLE_VISIBLE);
+        snprintf(view->sampleStatus,sizeof(view->sampleStatus),"Draft changed. Set the base Hz, then click Apply files.");
+        SDL_StartTextInput();
+    } else if (view->browserPurpose==2) {
+        SynthSampleBank *bank=synthSampleBankLoad(path,error,128);
+        if (!bank) return;
+        int result=sdlSynthApplySampleBank(bank);
+        size_t count=synthSampleBankCount(bank);
+        synthSampleBankDestroy(bank);
+        if (result) { snprintf(error,128,"%s",SDL_GetError()); return; }
+        view->appliedSamples=count;
+        const char *name=strrchr(path,'/'); name=name ? name+1 : path;
+        snprintf(view->sampleStatus,sizeof(view->sampleStatus),"Map applied: %.60s (%zu samples). Draft files are a separate replacement.",name,count);
+    } else {
+        if (midiPlayerLoad(&view->midi,path,error,128)) return;
+        strcpy(view->midiPath,path);
+    }
+    error[0]=0; view->browserOpen=false;
 }
 static int fileBrowserEvent(Spectrogram *view,const SDL_Event *event)
 {
@@ -904,6 +1075,7 @@ static int loadPreset(Spectrogram *view, int preset)
     if (preset < 0 || preset >= view->library.count) return 0;
     SynthConfig config = view->library.items[preset].config;
     if (sdlSynthConfigure(&config) != 0) return -1;
+    if (sdlSynthSetSourceMode(SYNTH_SOURCE_FM) != 0) return -1;
     spectrogramSetConfig(view, &config);
     view->preset = preset;
     view->presetOpen = false;
@@ -914,9 +1086,28 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
 {
     if (view->presetDialog) return presetDialogEvent(view,event);
     if (view->browserOpen) return fileBrowserEvent(view,event);
+    if (view->sampleEdit>=0) {
+        char *hz=view->sampleRows[view->sampleEdit].hz;
+        if (event->type==SDL_TEXTINPUT) {
+            size_t n=strlen(hz);
+            for (const char *c=event->text.text; *c && n<sizeof(view->sampleRows[0].hz)-1; ++c)
+                if ((*c>='0' && *c<='9') || *c=='.') hz[n++]=*c;
+            hz[n]=0; view->sampleError[0]=0;
+            snprintf(view->sampleStatus,sizeof(view->sampleStatus),"Draft changed. Click Apply files to replace the active bank.");
+            return 1;
+        }
+        if (event->type==SDL_KEYDOWN) {
+            SDL_Keycode key=event->key.keysym.sym;
+            if (key==SDLK_ESCAPE || key==SDLK_RETURN || key==SDLK_KP_ENTER) endSampleEdit(view);
+            else if (key==SDLK_BACKSPACE) { size_t n=strlen(hz); if (n) hz[n-1]=0; }
+            else if (key==SDLK_a && (event->key.keysym.mod & (KMOD_CTRL|KMOD_GUI))) hz[0]=0;
+            return 1;
+        }
+    }
     if (event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
         view->dragRow = -1;
         view->presetOpen = false;
+        endSampleEdit(view);
         SDL_CaptureMouse(SDL_FALSE);
         return 0;
     }
@@ -980,14 +1171,23 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         if (!wheelDelta) return 0;
         direction = wheelDelta > 0 ? 1 : -1;
     } else return 0;
+    if (view->equationPage && click && y<70) endSampleEdit(view);
+    if (view->equationPage && click && inside(x,y,(SDL_Rect){1380,20,180,42})) {
+        view->equationPage=5; return 1;
+    }
+    if (!view->equationPage && !view->presetOpen && click && inside(x,y,samplesPageButton)) {
+        view->equationPage=5; return 1;
+    }
     if (view->equationPage) {
         if (click && inside(x, y, soundPageButton)) { view->equationPage = 0; return 1; }
         if (click && inside(x, y, (SDL_Rect){340,20,225,42})) { view->equationPage = 1; view->equationScroll = 0; return 1; }
         if (click && inside(x, y, (SDL_Rect){600,20,225,42})) { view->equationPage = 2; view->equationScroll = 0; return 1; }
         if (click && inside(x, y, (SDL_Rect){860,20,225,42})) { view->equationPage = 3; return 1; }
         if (click && inside(x,y,(SDL_Rect){1120,20,225,42})) { view->equationPage=4; return 1; }
+        if (view->equationPage==5) return sampleControls(view,x,y,click,direction);
         if (view->equationPage == 4) {
             if (click && inside(x,y,midiBrowseButton)) {
+                view->browserPurpose=0;
                 const char *dir=view->browser.directory[0] ? view->browser.directory : NULL;
                 if (fileBrowserOpen(&view->browser,dir,view->midiError,sizeof(view->midiError))==0) {
                     view->midiError[0]=0; view->browserOpen=true;

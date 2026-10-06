@@ -60,6 +60,32 @@ int sdlSynthConfigure(const SynthConfig *config)
     return result == 0 ? 0 : SDL_SetError("Invalid synth configuration");
 }
 
+/* Decode on the control thread before entering these short audio locks. */
+int sdlSynthApplySampleBank(SynthSampleBank *bank)
+{
+    if (!device) return SDL_SetError("Audio is not running");
+    SDL_LockAudioDevice(device);
+    int result = synthApplySampleBank(engine, bank);
+    SDL_UnlockAudioDevice(device);
+    return result == 0 ? 0 : SDL_SetError("Cannot apply sample bank");
+}
+int sdlSynthSetSourceMode(SynthSourceMode mode)
+{
+    if (!device) return SDL_SetError("Audio is not running");
+    SDL_LockAudioDevice(device);
+    int result = synthSetSourceMode(engine, mode);
+    SDL_UnlockAudioDevice(device);
+    return result == 0 ? 0 : SDL_SetError("Apply a sample bank first");
+}
+SynthSourceMode sdlSynthGetSourceMode(void)
+{
+    if (!device) return SYNTH_SOURCE_FM;
+    SDL_LockAudioDevice(device);
+    SynthSourceMode mode = synthGetSourceMode(engine);
+    SDL_UnlockAudioDevice(device);
+    return mode;
+}
+
 int sdlSynthAudioSnapshot(float *samples, uint64_t *position)
 {
     if (!device) return 0;

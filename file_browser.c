@@ -13,13 +13,15 @@
 #include <unistd.h>
 #define GET_CWD getcwd
 #endif
-static bool midiExtension(const char *name)
+static bool matchesExtension(const char *name, BrowserFilter filter)
 {
     const char *extension=strrchr(name,'.');
     if (!extension) return false;
-    char lower[8]; size_t n=strlen(extension);
+    char lower[16]; size_t n=strlen(extension);
     if (n>=sizeof(lower)) return false;
     for (size_t i=0;i<=n;++i) lower[i]=(char)tolower((unsigned char)extension[i]);
+    if (filter==BROWSER_AUDIO) return !strcmp(lower,".wav") || !strcmp(lower,".mp3");
+    if (filter==BROWSER_SAMPLE_MAP) return !strcmp(lower,".csamples");
     return !strcmp(lower,".mid") || !strcmp(lower,".midi");
 }
 static int compare(const void *a,const void *b)
@@ -31,12 +33,12 @@ static int compare(const void *a,const void *b)
 static void entry(FileBrowser *browser,const char *name,bool directory)
 {
     if (!strcmp(name,".") || !strcmp(name,"..") || strlen(name)>=256 || browser->count==BROWSER_MAX) return;
-    if (!directory && !midiExtension(name)) return;
+    if (!directory && !matchesExtension(name,browser->filter)) return;
     BrowserEntry *e=&browser->entries[browser->count++]; strcpy(e->name,name); e->directory=directory;
 }
-int fileBrowserOpen(FileBrowser *b,const char *directory,char *error,size_t size)
+int fileBrowserOpenFiltered(FileBrowser *b,const char *directory,BrowserFilter filter,char *error,size_t size)
 {
-    FileBrowser next={0}; next.selected=-1;
+    FileBrowser next={0}; next.selected=-1; next.filter=filter;
     if (!directory) {
         if (!GET_CWD(next.directory,sizeof(next.directory))) { snprintf(error,size,"Cannot find current folder."); return -1; }
     } else {
@@ -73,12 +75,15 @@ int fileBrowserChoose(FileBrowser *b,int selected,char *path,size_t pathSize,cha
         while (n>root && (parent[n-1]=='/' || parent[n-1]=='\\')) parent[--n]=0;
         while (n>root && parent[n-1]!='/' && parent[n-1]!='\\') parent[--n]=0;
         if (n>root) parent[n-1]=0;
-        return fileBrowserOpen(b,parent,error,size);
+        return fileBrowserOpenFiltered(b,parent,b->filter,error,size);
     }
-    if (selected<0 || selected>=b->count) { snprintf(error,size,"Select a MIDI file."); return -1; }
+    if (selected<0 || selected>=b->count) { snprintf(error,size,"Select a file."); return -1; }
     if (snprintf(path,pathSize,"%s/%s",b->directory,b->entries[selected].name)>=(int)pathSize) {
         snprintf(error,size,"File path is too long."); return -1;
     }
-    if (b->entries[selected].directory) return fileBrowserOpen(b,path,error,size);
+    if (b->entries[selected].directory) return fileBrowserOpenFiltered(b,path,b->filter,error,size);
     return 1;
 }
+
+int fileBrowserOpen(FileBrowser *b,const char *directory,char *error,size_t size)
+{ return fileBrowserOpenFiltered(b,directory,BROWSER_MIDI,error,size); }

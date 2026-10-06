@@ -81,6 +81,20 @@ int main(void)
     CHECK(fabs(v->config.layers[0].gain - .6) < .00001 && v->preset == -1);
     e.type = SDL_MOUSEBUTTONUP; e.button.button = SDL_BUTTON_LEFT;
     CHECK(spectrogramEvent(v, &e) == 1 && v->dragRow == -1);
+    /* Main-view filter knobs enable, tune, and bypass through real dispatch. */
+    click(v,185,594);
+    e.type=SDL_MOUSEMOTION; e.motion.y=554;
+    CHECK(spectrogramEvent(v,&e)==1 && v->config.filters.lowpassHz==20);
+    e.motion.y=506;
+    CHECK(spectrogramEvent(v,&e)==1 && fabs(v->config.filters.lowpassHz-40)<1e-8);
+    e.type=SDL_MOUSEBUTTONUP; e.button.button=SDL_BUTTON_LEFT;
+    CHECK(spectrogramEvent(v,&e)==1);
+    click(v,410,594); e.type=SDL_MOUSEMOTION; e.motion.y=554;
+    CHECK(spectrogramEvent(v,&e)==1 && v->config.filters.highpassHz==20);
+    e.motion.y=598;
+    CHECK(spectrogramEvent(v,&e)==1 && v->config.filters.highpassHz==0);
+    e.type=SDL_MOUSEBUTTONUP; e.button.button=SDL_BUTTON_LEFT;
+    CHECK(spectrogramEvent(v,&e)==1);
     /* The four master knobs edit shared output settings, not operator timbre. */
     int before[4] = {v->config.outputEnvelope.attackMs, v->config.outputEnvelope.decayMs,
                      v->config.outputEnvelope.sustainPercent, v->config.outputEnvelope.releaseMs};
@@ -245,6 +259,54 @@ int main(void)
     e.type=SDL_KEYDOWN; e.key.keysym.sym=SDLK_ESCAPE;
     CHECK(spectrogramEvent(v,&e)==1 && v->equationPage==0);
     CHECK(remove(songPath)==0);
+    /* Recording browser, Hz editing, atomic apply, mode switching and map loading. */
+    char wavePath[1024], mapPath[1024];
+    snprintf(wavePath,sizeof(wavePath),"%s/tone.wav",presetFolder);
+    snprintf(mapPath,sizeof(mapPath),"%s/tone.csamples",presetFolder);
+    const unsigned char waveHeader[]={ 'R','I','F','F',40,0,0,0,'W','A','V','E',
+        'f','m','t',' ',16,0,0,0,1,0,1,0,0x80,0xbb,0,0,0,0x77,1,0,2,0,16,0,
+        'd','a','t','a',4,0,0,0,0,0x40,0,0x40 };
+    FILE *wave=fopen(wavePath,"wb"); CHECK(wave);
+    CHECK(fwrite(waveHeader,1,sizeof(waveHeader),wave)==sizeof(waveHeader)); CHECK(!fclose(wave));
+    FILE *map=fopen(mapPath,"wb"); CHECK(map);
+    CHECK(fputs("csynth-samples 1\nsample 220.00 1.00 0 2 \"tone.wav\"\n",map)>=0); CHECK(!fclose(map));
+    click(v,650,75); CHECK(v->equationPage==5); CHECK(spectrogramDraw(v)==0);
+    for (int n=0;n<2;++n) {
+        click(v,120,160); CHECK(v->browserOpen && v->browser.filter==BROWSER_AUDIO);
+        CHECK(v->browser.count==2); /* Only the user folder and WAV, never the map. */
+        fileIndex=-1;
+        for (int i=0;i<v->browser.count;++i) if (!strcmp(v->browser.entries[i].name,"tone.wav")) fileIndex=i;
+        CHECK(fileIndex>=0); click(v,220,235+fileIndex*38);
+        CHECK(!v->browserOpen && v->sampleCount==n+1 && v->sampleEdit==n);
+        e=(SDL_Event){0}; e.type=SDL_KEYDOWN; e.key.keysym.sym=SDLK_a; e.key.keysym.mod=KMOD_CTRL;
+        CHECK(spectrogramEvent(v,&e)==1);
+        e.type=SDL_TEXTINPUT; strcpy(e.text.text,n ? "440.00" : "220.00"); CHECK(spectrogramEvent(v,&e)==1);
+        e.type=SDL_KEYDOWN; e.key.keysym.sym=SDLK_RETURN; e.key.keysym.mod=0;
+        CHECK(spectrogramEvent(v,&e)==1 && v->sampleEdit==-1);
+    }
+    click(v,560,160); CHECK(v->appliedSamples==2 && !v->sampleError[0]);
+    CHECK(sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES);
+    strcpy(v->sampleRows[0].hz,"0"); click(v,560,160);
+    CHECK(v->sampleError[0] && v->appliedSamples==2 && sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES);
+    strcpy(v->sampleRows[0].hz,"220.00");
+    click(v,800,160); CHECK(sdlSynthGetSourceMode()==SYNTH_SOURCE_FM);
+    click(v,1010,160); CHECK(sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES);
+    click(v,120,250); click(v,120,625); CHECK(v->sampleCount==1 && v->appliedSamples==2);
+    click(v,560,160); CHECK(v->appliedSamples==1);
+    click(v,340,160); CHECK(v->browserOpen && v->browser.filter==BROWSER_SAMPLE_MAP);
+    fileIndex=-1;
+    for (int i=0;i<v->browser.count;++i) if (!strcmp(v->browser.entries[i].name,"tone.csamples")) fileIndex=i;
+    CHECK(fileIndex>=0); click(v,220,235+fileIndex*38);
+    CHECK(!v->browserOpen && v->appliedSamples==1 && !v->sampleError[0]);
+    CHECK(strstr(v->sampleStatus,"tone.csamples"));
+    /* Editing shared processing controls must preserve the sample source. */
+    click(v,880,35); CHECK(v->equationPage==3);
+    CHECK(changeRow(v,22,1)==0 && sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES);
+    click(v,100,35); CHECK(v->equationPage==0);
+    CHECK(changeRow(v,18,1)==0 && sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES);
+    CHECK(changeRow(v,28,1)==0 && sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES);
+    CHECK(changeRow(v,29,1)==0 && sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES);
+    CHECK(remove(wavePath)==0 && remove(mapPath)==0);
     if (getenv("GUI_CAPTURE")) {
         SDL_SetWindowSize(w, 1640, 780);
         SDL_PumpEvents();

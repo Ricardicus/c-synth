@@ -1,5 +1,8 @@
 # Keyboard synth
 
+The Logic Pro Audio Unit lives in [logic-plugin/](logic-plugin/README.md).
+That separate CMake project builds CSynth and includes the Logic installation guide.
+
 A small C11 / SDL2 keyboard synth built with CMake. Play up to 8 independent
 sound layers together, each with an FM chain of 1–8 operators:
 OP1 → OP2 → … → OPn. Each operator modulates the next one's instantaneous
@@ -112,6 +115,14 @@ CMake copies the submodule's factory sounds into this folder; saved sounds stay
 outside the submodule checkout. Set the CMake `SYNTH_PRESET_DIR` cache variable
 to choose a different default folder. The executable uses that folder regardless of its working
 directory; set the `SYNTH_PRESET_DIR` environment variable to override it at runtime.
+
+The main view includes **Low-pass Hz** and **High-pass Hz** knobs above the
+master ADSR. Turn up from **Off** to enable a filter; turn below 20 Hz to bypass
+it. Cutoffs cover 20–20000 Hz on a logarithmic dial. Drag or scroll to tune them,
+with Shift for finer changes. The filters affect all notes before echo/reverb,
+so the spectrogram shows the filtered sound. They use 12 dB/octave slopes and
+smooth live changes over about 20 ms. Saved settings include both cutoffs;
+older setting files load with filters off.
 
 Open **Effects** in the top row to adjust echo mix, delay (1–2000 ms),
 and feedback, plus reverb mix, room size, and damping. Effects apply after all notes
@@ -289,6 +300,36 @@ layer. Chords share a final output clamp at [-1, 1].
 ```
 
 More starting points are in [suggestions.txt](suggestions.txt).
+
+## Playing recordings as an instrument
+
+Open **Samples** in the SDL window. Click **Add sound file**, browse to a WAV
+or MP3, then click the **Base Hz** field and enter the recording's pitch.
+Ctrl+A (or Cmd+A on Mac) replaces the field; Enter finishes editing.
+Add more recordings the same way, or just use one. **Apply files** loads the
+bank and switches the keyboard and MIDI player to sample playback. Edits and
+removals affect the draft until you apply it. A failed load leaves the current
+bank playing.
+
+For your piano recordings, use A3 = **220.00 Hz**, A4 = **440.00 Hz**, and
+A5 = **880.00 Hz**. The ready-made [piano map](libcsynth/media/piano.csamples)
+contains those three files; select it with **Load sample map**. Maps load
+directly as the active bank, separately from the editable replacement draft.
+Relative recording paths are resolved from the map's folder.
+
+**FM source** and **Sample source** switch between engines without reloading
+the bank. Selecting a sound preset switches back to FM; you can return to the
+sample bank with **Sample source**. The nearest recorded pitch is chosen for
+each note and transposed to match what you play.
+
+The **master output ADSR**, **lowpass/highpass filters**, **echo**, and
+**reverb** all work in sample mode and can be changed while playing. Layer
+count, gain and detune also apply; FM operator controls only shape the FM
+source. Files added through the panel play once, so ADSR cannot extend a
+recording beyond its end. Maps can define loops for sustained sounds; see
+[libcsynth's sample documentation](libcsynth/README.md).
+Saved `.synth` settings store the processing configuration; keep the sample
+map and recordings separately.
 
 ## C API
 
