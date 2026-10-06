@@ -16,24 +16,28 @@ brew install cmake sdl2 freetype
 Build and run:
 
 ```sh
+git submodule update --init --recursive
 cmake -S . -B build
 cmake --build build
 ./build/keyboard_synth
 ```
 
-CMake downloads [libcsynth](https://github.com/Ricardicus/libcsynth) during
-configuration and builds it before linking the app. The first configure needs
-Git and internet access; later builds reuse the checkout under `build/_deps/`.
-The default revision is pinned in `CSYNTH_GIT_TAG` so a new upstream commit
-won't unexpectedly change this build. To choose a newer revision, configure
-with `-DCSYNTH_GIT_TAG=<commit-or-tag>`.
+[libcsynth](https://github.com/Ricardicus/libcsynth) is a Git submodule in
+`libcsynth/`. After cloning this repository, initialize it before configuring:
+
+```sh
+git submodule update --init --recursive
+```
+
+Or clone with `git clone --recurse-submodules <this-repository-url>`.
+CMake builds the checked-out library before linking the app; it doesn't download
+or update the dependency. Git records the exact library commit in this repository.
+To update it later, use `git submodule update --remote libcsynth`, test the build,
+and commit the updated submodule pointer.
 
 The core is SDL-free. This project's `csynth::sdl` adapter handles device
 playback. See the upstream [API doc](https://github.com/Ricardicus/libcsynth/blob/master/docs/libcsynth-api.md)
 for notes, live edits, snapshots, and rendering samples yourself.
-
-For an existing checkout, skip the download with
-`-DFETCHCONTENT_SOURCE_DIR_LIBCSYNTH=/absolute/path/to/libcsynth`.
 
 Focus the SDL window and hold keys to play. Multiple keys produce chords.
 
@@ -104,8 +108,8 @@ The dedicated `presets/` folder contains `factory/*.synth` (the shipped sounds)
 and `user/*.synth` (your saved sounds). Files use a versioned, readable text format
 and store all layers/operators, including inactive settings, master ADSR, and
 effects at full floating-point precision. Invalid user files are skipped at startup.
-CMake copies the downloaded factory sounds into this folder; saved sounds stay
-outside the dependency checkout. Set the CMake `SYNTH_PRESET_DIR` cache variable
+CMake copies the submodule's factory sounds into this folder; saved sounds stay
+outside the submodule checkout. Set the CMake `SYNTH_PRESET_DIR` cache variable
 to choose a different default folder. The executable uses that folder regardless of its working
 directory; set the `SYNTH_PRESET_DIR` environment variable to override it at runtime.
 
@@ -289,8 +293,8 @@ More starting points are in [suggestions.txt](suggestions.txt).
 ## C API
 
 The reusable core comes from [Ricardicus/libcsynth](https://github.com/Ricardicus/libcsynth).
-CMake's `FetchContent` downloads the configured revision and provides the
-`csynth::csynth` target. There is no bundled copy of the engine here.
+CMake uses `add_subdirectory(libcsynth)` to build the submodule and provide
+the `csynth::csynth` target. The core is maintained in its own repository.
 Start with `synthCreate()`, send notes with `synthNoteOn()` / `synthNoteOff()`,
 and call `synthRender()` to fill a mono float buffer. `synthConfigure()` applies
 settings to held and future notes. See the upstream

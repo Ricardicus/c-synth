@@ -7,18 +7,16 @@ if(CSYNTH_BUILD_APP AND NOT CSYNTH_BUILD_SDL_ADAPTER)
     message(FATAL_ERROR "The SDL app needs CSYNTH_BUILD_SDL_ADAPTER=ON")
 endif()
 include(CTest)
-include(FetchContent)
-set(CSYNTH_GIT_TAG "2b887373bbd14cfdf041bef9430dfe9182425f56" CACHE STRING
-    "libcsynth commit or tag to download")
-FetchContent_Declare(libcsynth
-    GIT_REPOSITORY https://github.com/Ricardicus/libcsynth.git
-    GIT_TAG ${CSYNTH_GIT_TAG})
-FetchContent_MakeAvailable(libcsynth)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libcsynth/CMakeLists.txt")
+    message(FATAL_ERROR
+        "libcsynth submodule is missing. Run: git submodule update --init --recursive")
+endif()
+add_subdirectory(libcsynth)
 
-# Keep saved sounds outside the downloaded dependency checkout.
+# Keep saved sounds outside the submodule checkout.
 set(SYNTH_PRESET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/presets" CACHE PATH
     "App preset folder (factory sounds and saved settings)")
-file(COPY "${libcsynth_SOURCE_DIR}/presets/factory" DESTINATION "${SYNTH_PRESET_DIR}")
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/libcsynth/presets/factory" DESTINATION "${SYNTH_PRESET_DIR}")
 
 function(app_compile_options target)
     set_target_properties(${target} PROPERTIES C_EXTENSIONS OFF)
