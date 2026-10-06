@@ -25,10 +25,99 @@ struct TestPlayHead : juce::AudioPlayHead {
     PositionInfo position;
     juce::Optional<PositionInfo> getPosition() const override { return position; }
 };
+static void sampleInstrument()
+{
+    auto file=juce::File("/tmp").getNonexistentChildFile("csynth-sample-test",".wav");
+    struct Cleanup { juce::File file; ~Cleanup() { file.deleteFile(); } } cleanup{file};
+    juce::WavAudioFormat format;
+    std::unique_ptr<juce::OutputStream> stream=file.createOutputStream(); CHECK(stream);
+    auto writer=format.createWriterFor(stream,juce::AudioFormatWriterOptions{}.withSampleRate(48000).withNumChannels(1).withBitsPerSample(16)); CHECK(writer);
+    juce::AudioBuffer<float> tone(1,48000);
+    for (int i=0;i<tone.getNumSamples();++i) tone.setSample(0,i,.5f*static_cast<float>(std::sin(2*juce::MathConstants<double>::pi*440*i/48000)));
+    CHECK(writer->writeFromAudioSampleBuffer(tone,0,tone.getNumSamples())); writer.reset();
+    CSynthProcessor p; p.setCurrentProgram(1);
+    set(p,"attack",0); set(p,"decay",0); set(p,"sustain",100); set(p,"release",0);
+    p.setSampleFiles({{file.getFullPathName(),"440.00"}});
+    CHECK(p.applySampleFiles().wasOk() && p.usesSamples() && p.sampleBankSize()==1);
+    p.prepareToPlay(48000,24000);
+    juce::AudioBuffer<float> out(2,24000); juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1,69,static_cast<juce::uint8>(127)),0);
+    p.processBlock(out,midi); double dry=energy(out,4800); CHECK(dry>.01);
+    set(p,"lowpass",40); p.processBlock(out,midi); CHECK(energy(out,4800)<dry*.05 && p.usesSamples());
+    set(p,"lowpass",0); set(p,"highpass",4000); p.processBlock(out,midi);
+    // Retrigger the exhausted one-shot to test highpass with new input.
+    midi.addEvent(juce::MidiMessage::noteOff(1,69),0); midi.addEvent(juce::MidiMessage::noteOn(1,69,static_cast<juce::uint8>(127)),1);
+    p.processBlock(out,midi); CHECK(energy(out,4800)<dry*.05);
+    set(p,"highpass",0); set(p,"sustain",25); p.processBlock(out,midi);
+    midi.addEvent(juce::MidiMessage::noteOff(1,69),0); midi.addEvent(juce::MidiMessage::noteOn(1,69,static_cast<juce::uint8>(127)),1);
+    p.processBlock(out,midi); CHECK(energy(out,4800)<dry*.2 && energy(out,4800)>dry*.01);
+    auto valid=p.sampleFiles(); p.setSampleFiles({{file.getFullPathName(),"440..00"}});
+    CHECK(p.applySampleFiles().failed() && p.usesSamples() && p.sampleBankSize()==1);
+    p.setSampleFiles({{file.getSiblingFile("missing-csynth.wav").getFullPathName(),"440"}});
+    CHECK(p.applySampleFiles().failed() && p.usesSamples());
+    p.setSampleFiles(valid); CHECK(p.applySampleFiles().wasOk());
+    auto multi=valid; multi.push_back({file.getFullPathName(),"220.00"}); p.setSampleFiles(multi);
+    CHECK(p.applySampleFiles().wasOk() && p.sampleBankSize()==2);
+    // Unsaved draft edits must not change the active bank restored with the project.
+    p.setSampleFiles(valid); juce::MemoryBlock state; p.getStateInformation(state);
+    CSynthProcessor restored; restored.setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+    CHECK(restored.usesSamples() && restored.sampleBankSize()==2 && restored.sampleFiles().size()==1);
+    restored.prepareToPlay(44100,512); juce::AudioBuffer<float> shortOut(2,512);
+    midi.addEvent(juce::MidiMessage::noteOn(1,69,static_cast<juce::uint8>(100)),0); restored.processBlock(shortOut,midi); CHECK(energy(shortOut)>0);
+    restored.releaseResources(); restored.prepareToPlay(48000,512); CHECK(restored.usesSamples());
+    CHECK(restored.useSamples(false).wasOk() && !restored.usesSamples());
+    CHECK(restored.useSamples(true).wasOk()); restored.setCurrentProgram(1); CHECK(!restored.usesSamples());
+    CHECK(restored.useSamples(true).wasOk());
+    restored.releaseResources();
+    {
+        std::unique_ptr<juce::AudioProcessorEditor> editor(p.createEditor()); CHECK(editor);
+        for (auto* child : editor->getChildren())
+            if (auto* button=dynamic_cast<juce::TextButton*>(child))
+                if (button->getButtonText()=="Samples") button->onClick();
+        bool edited=false;
+        for (auto* child : editor->getChildren())
+            if (auto* panel=dynamic_cast<SamplePanel*>(child)) {
+                CHECK(panel->isVisible());
+                for (auto* control : panel->getChildren())
+                    if (auto* list=dynamic_cast<juce::ListBox*>(control)) {
+                        CHECK(list->getListBoxModel()->getNumRows()==1);
+                        auto* row=list->getComponentForRowNumber(0); CHECK(row);
+                        for (auto* field : row->getChildren())
+                            if (auto* hz=dynamic_cast<juce::TextEditor*>(field)) {
+                                hz->setText("880.00",false); hz->onTextChange(); edited=true;
+                            }
+                    }
+                CHECK(p.sampleFiles()[0].hz=="880.00" && p.sampleBankSize()==2);
+                for (auto* control : panel->getChildren())
+                    if (auto* button=dynamic_cast<juce::TextButton*>(control))
+                        if (button->getButtonText()=="Apply files") button->onClick();
+                CHECK(p.sampleBankSize()==1 && p.usesSamples());
+                if (auto* path=std::getenv("CSYNTH_EDITOR_CAPTURE")) {
+                    auto image=editor->createComponentSnapshot(editor->getLocalBounds());
+                    juce::FileOutputStream output{juce::File(path).getSiblingFile("csynth-samples-loaded.png")}; CHECK(output.openedOk());
+                    output.setPosition(0); output.truncate(); CHECK(juce::PNGImageFormat().writeImageToStream(image,output));
+                }
+            }
+        CHECK(edited);
+    }
+    for (int effect=0;effect<3;++effect) {
+        CSynthProcessor tail; tail.setCurrentProgram(1); set(tail,"attack",0); set(tail,"release",0);
+        if (effect==1) { set(tail,"echoMix",.5f); set(tail,"echoDelay",25); }
+        if (effect==2) set(tail,"reverbMix",.5f);
+        tail.setSampleFiles(valid); CHECK(tail.applySampleFiles().wasOk()); tail.prepareToPlay(48000,24000);
+        midi.addEvent(juce::MidiMessage::noteOn(1,69,static_cast<juce::uint8>(127)),0); tail.processBlock(shortOut,midi);
+        midi.addEvent(juce::MidiMessage::noteOff(1,69),0); tail.processBlock(out,midi);
+        if (effect==0) CHECK(energy(out)<=0); else CHECK(energy(out,1000)>1e-8);
+    }
+    CHECK(file.deleteFile());
+    CSynthProcessor missing; missing.setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+    CHECK(!missing.usesSamples() && missing.sampleBankSize()==0 && missing.sampleLoadError().isNotEmpty());
+}
 int main()
 {
     juce::ScopedJuceInitialiser_GUI init;
     try {
+        sampleInstrument();
         CHECK(std::abs(echoTiming::milliseconds(1,120,213)-62.5)<.001);
         CHECK(std::abs(echoTiming::milliseconds(8,120,213)-375)<.001);
         CHECK(std::abs(echoTiming::milliseconds(11,120,213)-750)<.001);
@@ -143,7 +232,7 @@ int main()
             CHECK(juce::PNGImageFormat().writeImageToStream(snapshot,output));
         }
         CHECK(editor->getHeight()==700);
-        for (const auto& pageName : {"Output & filters","Effects","Keyboard","Synth"}) {
+        for (const auto& pageName : {"Output & filters","Effects","Keyboard","Samples","Synth"}) {
             bool selected=false;
             for (auto* child : editor->getChildren())
                 if (auto* button=dynamic_cast<juce::TextButton*>(child))
@@ -168,6 +257,27 @@ int main()
                     CHECK(juce::PNGImageFormat().writeImageToStream(image,output));
                 }
                 set(a,"echoTiming",0);
+            }
+            if (juce::String(pageName)=="Samples") {
+                bool visiblePanel=false;
+                for (auto* child : editor->getChildren())
+                    if (auto* panel=dynamic_cast<SamplePanel*>(child)) {
+                        CHECK(panel->isVisible()); visiblePanel=true;
+                        bool foundApply=false,foundSampleSource=false;
+                        for (auto* control : panel->getChildren())
+                            if (auto* button=dynamic_cast<juce::TextButton*>(control)) {
+                                if (button->getButtonText()=="Apply files") { CHECK(!button->isEnabled()); foundApply=true; }
+                                if (button->getButtonText()=="Sample source") { CHECK(!button->isEnabled() && button->getTooltip().isNotEmpty()); foundSampleSource=true; }
+                            }
+                        CHECK(foundApply && foundSampleSource);
+                        if (auto* path=std::getenv("CSYNTH_EDITOR_CAPTURE")) {
+                            auto image=editor->createComponentSnapshot(editor->getLocalBounds());
+                            juce::FileOutputStream output{juce::File(path).getSiblingFile("csynth-samples.png")};
+                            CHECK(output.openedOk()); output.setPosition(0); output.truncate();
+                            CHECK(juce::PNGImageFormat().writeImageToStream(image,output));
+                        }
+                    }
+                CHECK(visiblePanel);
             }
             if (juce::String(pageName)=="Keyboard") {
                 a.keyboard.noteOn(1,72,.8f); a.processBlock(buffer,midi); CHECK(energy(buffer)>0);

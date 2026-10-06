@@ -29,6 +29,14 @@ public:
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*,int) override;
 
+    struct SampleFile { juce::String path, hz{"440.00"}; };
+    std::vector<SampleFile> sampleFiles() const;
+    void setSampleFiles(std::vector<SampleFile>);
+    juce::Result applySampleFiles();
+    juce::Result useSamples(bool);
+    bool usesSamples() const { return samplesEnabled.load(); }
+    int sampleBankSize() const { return bankSize.load(); }
+    juce::String sampleLoadError() const;
     SynthConfig readConfig() const;
     double echoTempo() const { return tempo.load(); }
     bool hasEchoTempo() const { return tempoReceived.load(); }
@@ -41,6 +49,12 @@ public:
     juce::MidiKeyboardState keyboard;
     SpectrumTap spectrumTap;
 private:
+    juce::Result loadSampleFiles(const std::vector<SampleFile>&, bool enabled);
+    std::unique_ptr<SynthSampleBank,decltype(&synthSampleBankDestroy)> sampleBank{nullptr,synthSampleBankDestroy};
+    std::vector<SampleFile> draftSamples, activeSamples;
+    juce::String sampleError;
+    std::atomic<bool> samplesEnabled{false};
+    std::atomic<int> bankSize{0};
     void updatePatch();
     void handleMidi(const juce::MidiMessage&);
     void syncNote(int);

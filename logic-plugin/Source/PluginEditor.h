@@ -1,5 +1,6 @@
 #pragma once
 #include "PluginProcessor.h"
+#include "SamplePanel.h"
 #include <juce_audio_utils/juce_audio_utils.h>
 
 class CSynthEditor final : public juce::AudioProcessorEditor, private juce::Timer {
@@ -27,7 +28,8 @@ private:
     juce::ComboBox presets, layer, op, waveform, envelope, echoTiming;
     juce::TextButton previous{"<"}, next{">"}, import{"Import .synth"}, exportSound{"Export .synth"}, release{"Release notes"};
     juce::Label layerLabel, operatorLabel, status, envelopeAvailability, echoTimingInfo;
-    juce::TextButton synthTab{"Synth"}, outputTab{"Output & filters"}, effectsTab{"Effects"}, keyboardTab{"Keyboard"};
+    juce::TextButton synthTab{"Synth"}, outputTab{"Output & filters"}, effectsTab{"Effects"}, keyboardTab{"Keyboard"}, samplesTab{"Samples"};
+    SamplePanel samplePanel;
     juce::MidiKeyboardComponent keyboard;
     int currentPage=0;
     OutputSpectrogram spectrogram;

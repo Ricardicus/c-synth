@@ -43,7 +43,7 @@ void CSynthEditor::Knob::resized()
     slider.setBounds(area);
 }
 CSynthEditor::CSynthEditor(CSynthProcessor& p)
-    : AudioProcessorEditor(p), synthProcessor(p), keyboard(p.keyboard,juce::MidiKeyboardComponent::horizontalKeyboard), spectrogram(p.spectrumTap)
+    : AudioProcessorEditor(p), synthProcessor(p), samplePanel(p), keyboard(p.keyboard,juce::MidiKeyboardComponent::horizontalKeyboard), spectrogram(p.spectrumTap)
 {
     look.setColour(juce::ResizableWindow::backgroundColourId,juce::Colour(0xff101722));
     look.setColour(juce::Slider::rotarySliderFillColourId,juce::Colour(0xff47c8c0));
@@ -54,13 +54,14 @@ CSynthEditor::CSynthEditor(CSynthProcessor& p)
     look.setColour(juce::TextButton::buttonOnColourId,juce::Colour(0xff21666d));
     setLookAndFeel(&look);
     for (auto* component : std::initializer_list<juce::Component*>{&presets,&previous,&next,&import,&exportSound,&release,
-            &layer,&op,&waveform,&envelope,&layerLabel,&operatorLabel,&status,&envelopeAvailability,&spectrogram,&echoTiming,&echoTimingInfo,&synthTab,&outputTab,&effectsTab,&keyboardTab,&keyboard}) addAndMakeVisible(component);
-    for (auto* tab : {&synthTab,&outputTab,&effectsTab,&keyboardTab}) {
+            &layer,&op,&waveform,&envelope,&layerLabel,&operatorLabel,&status,&envelopeAvailability,&spectrogram,&echoTiming,&echoTimingInfo,&synthTab,&outputTab,&effectsTab,&keyboardTab,&samplesTab,&samplePanel,&keyboard}) addAndMakeVisible(component);
+    for (auto* tab : {&synthTab,&outputTab,&effectsTab,&keyboardTab,&samplesTab}) {
         tab->setClickingTogglesState(true); tab->setRadioGroupId(1);
     }
     synthTab.onClick=[this] { showPage(0); };
     outputTab.onClick=[this] { showPage(1); };
     effectsTab.onClick=[this] { showPage(2); };
+    samplesTab.onClick=[this] { showPage(4); };
     keyboardTab.onClick=[this] { showPage(3); };
     keyboard.setAvailableRange(36,96); keyboard.setLowestVisibleKey(36);
     keyboard.setVelocity(.8f,false); keyboard.setWantsKeyboardFocus(false); keyboard.clearKeyMappings();
@@ -161,8 +162,21 @@ void CSynthEditor::timerCallback()
         : juce::String(synthProcessor.effectiveEchoDelayMs(),1)+" ms / "+juce::String(bpm,1)+" BPM"
           +(synthProcessor.hasEchoTempo() ? "" : " (fallback)")
           +(requested>CSYNTH_ECHO_MAX_DELAY_MS ? " / 30 s limit" : requested<1 ? " / 1 ms limit" : ""),juce::dontSendNotification);
+    const bool sampled=synthProcessor.usesSamples();
+    if (sampled) {
+        for (auto& knob : operatorKnobs) knob->setAvailability("Sample source: FM only","These controls shape FM operators. Master ADSR, filters, effects, layer gain and detune still affect samples.");
+        layerKnobs[3]->setAvailability("Sample source: FM only"); waveform.setEnabled(false); envelope.setEnabled(false);
+        waveform.setTooltip("FM waveforms are replaced by your recordings in sample mode.");
+        envelopeAvailability.setText("Sample source: use master ADSR on Output & filters.",juce::dontSendNotification);
+    } else {
+        layerKnobs[3]->setAvailability(""); waveform.setEnabled(true);
+        for (int i : {0,3,4}) operatorKnobs[static_cast<std::size_t>(i)]->setAvailability("");
+        waveform.setTooltip("Waveform of the selected operator. The last active operator is the carrier.");
+    }
+    samplePanel.refresh();
     bool active=l<config.layerCount && o<config.layers[l].fm.operatorCount;
     status.setText(!synthProcessor.engineReady() ? "Audio engine isn't running. In Standalone, choose an audio output in Options." :
+        sampled ? "Sample source active. Master ADSR, filters and effects work on your recordings; FM operator controls are inactive." :
         active ? "Layer/operator selection changes what you edit. Last active operator = carrier. Shift-drag for fine control." :
                  "This slot is inactive. Increase the layer/operator counts to hear it; its settings are still saved.",juce::dontSendNotification);
 }
@@ -195,6 +209,7 @@ void CSynthEditor::showPage(int page)
 {
     if (currentPage==3 && page!=3) keyboard.clearKeyMappings();
     currentPage=page;
+    samplePanel.setVisible(page==4); samplesTab.setToggleState(page==4,juce::dontSendNotification);
     keyboard.setVisible(page==3);
     keyboardTab.setToggleState(page==3,juce::dontSendNotification);
     synthTab.setToggleState(page==0,juce::dontSendNotification);
@@ -246,6 +261,7 @@ void CSynthEditor::resized()
     place(import,675,26,140,34); place(exportSound,825,26,140,34); place(release,980,26,180,34);
     place(echoTiming,300,126,235,30); place(echoTimingInfo,545,126,615,30);
     place(synthTab,20,85,150,30); place(outputTab,180,85,180,30); place(effectsTab,370,85,150,30); place(keyboardTab,530,85,150,30);
+    place(samplesTab,690,85,150,30); place(samplePanel,20,130,1140,365);
     place(keyboard,20,180,1140,140); keyboard.setKeyWidth(keyboard.getWidth()/36.0f);
     for (int i=0;i<4;++i) place(*globalKnobs[static_cast<std::size_t>(i)],20+i*285,160,265,120);
     for (int i=4;i<7;++i) place(*globalKnobs[static_cast<std::size_t>(i)],20+(i-4)*380,325,360,120);

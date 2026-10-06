@@ -433,3 +433,38 @@ once when the engine starts. The submodule contains the small capacity-option
 change required for this; commit/publish those library changes before sharing
 an updated submodule pointer with another checkout. Ordinary library builds
 still default to 2,000 ms.
+
+## Sample instruments
+
+Open the **Samples** tab and click **Add sound files**. Choose one or several
+WAV/MP3 recordings, then enter the note recorded in each file as a frequency
+in Hz. A3 is 220.00 Hz, A4 is 440.00 Hz, and A5 is 880.00 Hz. Click **Apply
+files** to decode the recordings and start playing them with Logic MIDI or
+the plugin's Keyboard tab. One recording is enough; with several, libcsynth
+chooses the closest recorded pitch and transposes it for each note.
+
+The list scrolls, Hz fields are editable, and **Remove selected** removes a
+file from the draft. Changes take effect when you apply them. If decoding or
+validation fails, the previously applied bank keeps playing. **FM source**
+and **Sample source** switch without reloading; choosing a factory preset
+switches to FM. Importing a `.synth` setting changes processing parameters
+while retaining the current source.
+
+**Output & filters** controls master ADSR, lowpass, highpass and gain for
+both sources. **Effects** works too, including tempo-synced echo and reverb.
+Layer gain/detune still affect samples. FM operator controls show why they
+are unavailable in sample mode. Added files play once, so holding a key or
+increasing ADSR sustain cannot extend a recording past its end.
+
+Logic's project state saves the applied bank's file paths and frequencies,
+the source mode, and the separate editing draft. It reloads the recordings
+when the project opens and retains the bank through audio-device/sample-rate
+changes. The recordings are referenced by absolute path, not embedded: keep
+them in a stable folder, and copy them separately when moving a project.
+Missing files produce an error on the Samples tab and fall back to FM;
+browse to their new location and apply again. Exported `.synth` files contain
+processing settings only, not the recordings.
+
+File decoding happens on the calling control thread outside the audio lock.
+A short callback lock protects bank replacement and source switching. The
+render callback reads the already decoded bank; it does no sample-file I/O.
