@@ -422,8 +422,11 @@ static bool integerKnob(int row)
     return row == 11 || row == 12 || row == 13 || row == 14 || (row >= 18 && row <= 21);
 }
 
+static const char *routingReason(Spectrogram *view, int row);
+
 static int changeRow(Spectrogram *view, int row, double direction)
 {
+    if (row>=30 && row<=40 && routingReason(view,row)[0]) return 0;
     SynthConfig old = view->config;
     SynthLayerConfig *layer = &view->config.layers[view->selectedLayer];
     FmOperatorConfig *op = &layer->fm.operators[view->selectedOperator];
@@ -458,7 +461,12 @@ static int changeRow(Spectrogram *view, int row, double direction)
     case 27: view->config.effects.reverbDamping = adjust(view->config.effects.reverbDamping, .01, direction, 0, 1); break;
     case 28: view->config.filters.lowpassHz = adjustCutoff(view->config.filters.lowpassHz, direction); break;
     case 29: view->config.filters.highpassHz = adjustCutoff(view->config.filters.highpassHz, direction); break;
-    default: return 0;
+    case 30: op->outputLevel=adjust(op->outputLevel,.01,direction,0,1); break;
+    case 31: op->feedback=adjust(op->feedback,.01,direction,0,8); break;
+    case 40: layer->fm.algorithm=(FmAlgorithm)adjust(layer->fm.algorithm,1,direction,0,FM_ALGORITHM_COUNT-1); break;
+    default:
+        if(row>=32 && row<=38) layer->fm.routing[row-32][view->selectedOperator]=adjust(layer->fm.routing[row-32][view->selectedOperator],.01,direction,0,1);
+        else return 0;
     }
     view->selectedLayer = (int)fmin(view->selectedLayer, view->config.layerCount - 1);
     view->selectedOperator = (int)fmin(view->selectedOperator,
@@ -548,7 +556,9 @@ static void drawKnob(Spectrogram *view, int index)
 static const SDL_Rect savePresetButton = {80, 58, 215, 38};
 static const SDL_Rect deletePresetButton = {315, 58, 215, 38};
 static const SDL_Rect effectsPageButton = {598, 10, 155, 38};
-static const SDL_Rect samplesPageButton = {598,58,382,38};
+static const SDL_Rect samplesPageButton = {598,58,185,38};
+static const SDL_Rect routingPageButton = {795,58,185,38};
+static const SDL_Rect routingNavButton = {1380,76,180,38};
 static const SDL_Rect midiPageButton = {773, 10, 207, 38};
 static const SDL_Rect midiBrowseButton = {100, 170, 235, 42};
 static const SDL_Rect midiPlayButton = {100, 290, 160, 42};
@@ -588,8 +598,56 @@ static void waveformFunction(const FmOperatorConfig *op, int layer, int index,
         snprintf(value, size, "%s(p%d_%d(t))", name, layer, index);
 }
 
+static void graphFunctions(const Spectrogram *view, EquationLines *lines)
+{
+    char line[512];
+    addEquation(lines,"dt = 1.00 / sampleRate");
+    snprintf(line,sizeof(line),"x[n] = 0.10 / %.2f * (",(double)view->config.layerCount); addEquation(lines,line);
+    for (int l=0;l<view->config.layerCount;++l) {
+        snprintf(line,sizeof(line),"  %s%.2f * s%d[n]",l ? "+ " : "",view->config.layers[l].gain,l+1); addEquation(lines,line);
+    }
+    addEquation(lines,")");
+    for (int l=0;l<view->config.layerCount;++l) {
+        const FmConfig *fm=&view->config.layers[l].fm;
+        FmSynth topology; fmInit(&topology,48000,fm);
+        double base=view->equationFrequency*exp2(view->config.layers[l].detuneCents/1200.0);
+        snprintf(line,sizeof(line),"s%d[n] = (",l+1); addEquation(lines,line);
+        for (int i=0;i<fm->operatorCount;++i) if (topology.outputLevels[i]>0) {
+            snprintf(line,sizeof(line),"  + %.2f * y%d_%d[n]",topology.outputLevels[i],l+1,i+1); addEquation(lines,line);
+        }
+        snprintf(line,sizeof(line),") / %.2f",topology.outputNormalization); addEquation(lines,line);
+        for (int i=0;i<fm->operatorCount;++i) {
+            const FmOperatorConfig *op=&fm->operators[i];
+            if (op->waveform==WAVE_NOISE) snprintf(line,sizeof(line),"y%d_%d[n] = uniform(-1.00, 1.00)",l+1,i+1);
+            else if (op->waveform==WAVE_PULSE) snprintf(line,sizeof(line),"y%d_%d[n] = pulse(p%d_%d[n], %.2f)",l+1,i+1,l+1,i+1,op->pulseWidth);
+            else snprintf(line,sizeof(line),"y%d_%d[n] = %s(p%d_%d[n])",l+1,i+1,op->waveform==WAVE_SINE ? "sin" : oscillatorWaveformName(op->waveform),l+1,i+1);
+            addEquation(lines,line);
+            if (op->indexMode==FM_INDEX_DECAY) snprintf(line,sizeof(line),"e%d_%d[n] = exp(-%.2f*n*dt)",l+1,i+1,op->decayRate);
+            else if (op->indexMode==FM_INDEX_ADSR) snprintf(line,sizeof(line),"e%d_%d[n] = adsr(1000.00*n*dt, %.2f, %.2f, %.2f, %.2f)",l+1,i+1,(double)op->attackMs,(double)op->decayMs,op->sustainPercent/100.0,(double)op->releaseMs);
+            else snprintf(line,sizeof(line),"e%d_%d[n] = 1.00",l+1,i+1);
+            addEquation(lines,line);
+            snprintf(line,sizeof(line),"F%d_%d[n] = %.2f",l+1,i+1,base*op->ratio); addEquation(lines,line);
+            for (int j=0;j<i;++j) if(topology.routing[j][i]>0) {
+                snprintf(line,sizeof(line),"  + %.2f * e%d_%d[n] * y%d_%d[n]",topology.routing[j][i]*base*fm->operators[j].ratio*fm->operators[j].rm,l+1,j+1,l+1,j+1); addEquation(lines,line);
+            }
+            if(op->feedback>0) { snprintf(line,sizeof(line),"  + %.2f * e%d_%d[n] * y%d_%d[n-1]",base*op->ratio*op->feedback,l+1,i+1,l+1,i+1); addEquation(lines,line); }
+            if(op->vibratoDepthCents>0) {
+                snprintf(line,sizeof(line),"p%d_%d[n+1] = p%d_%d[n] + 2.00*pi*dt*F%d_%d[n]*exp2(%.2f*sin(v%d_%d[n])/1200.00)",l+1,i+1,l+1,i+1,l+1,i+1,op->vibratoDepthCents,l+1,i+1); addEquation(lines,line);
+                snprintf(line,sizeof(line),"v%d_%d[n+1] = v%d_%d[n] + 2.00*pi*%.2f*dt",l+1,i+1,l+1,i+1,op->vibratoRateHz);
+            } else snprintf(line,sizeof(line),"p%d_%d[n+1] = p%d_%d[n] + 2.00*pi*dt*F%d_%d[n]",l+1,i+1,l+1,i+1,l+1,i+1);
+            addEquation(lines,line);
+        }
+    }
+}
+
 static void fmFunctions(const Spectrogram *view, EquationLines *lines)
 {
+    for (int l=0;l<view->config.layerCount;++l) {
+        const FmConfig *fm=&view->config.layers[l].fm;
+        bool graph=fm->algorithm!=FM_ALGORITHM_CHAIN;
+        for(int i=0;i<fm->operatorCount;++i) graph |= fm->operators[i].feedback>0;
+        if(graph) { graphFunctions(view,lines); return; }
+    }
     char line[512], wave[80], previousWave[80], index[120], vibrato[120];
     snprintf(line, sizeof(line), "x(t) = (0.10 / %.2f) * (", (double)view->config.layerCount);
     addEquation(lines, line);
@@ -784,6 +842,161 @@ static int sampleControls(Spectrogram *view, int x, int y, bool click, int direc
     return 1;
 }
 
+static SDL_Rect routingKnobRect(int i)
+{
+    if(i<2) return (SDL_Rect){1060+i*250,320,220,104};
+    return (SDL_Rect){100+(i-2)*205,615,190,104};
+}
+static SDL_Rect algorithmRect(int i) { return (SDL_Rect){100+(i%3)*480,190+(i/3)*50,450,38}; }
+static const char *routingReason(Spectrogram *view, int row)
+{
+    if(sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES) return "Sample mode: FM only";
+    FmConfig fm=view->config.layers[view->selectedLayer].fm;
+    int d=view->selectedOperator;
+    if(row==40 || row==31) return "";
+    if(row>=32 && row<=38) {
+        if(row-32>=d) return "Earlier sources only";
+        if(fm.algorithm!=FM_ALGORITHM_CUSTOM) return "Choose Custom graph";
+        return "";
+    }
+    if(row==30) {
+        if(fm.algorithm==FM_ALGORITHM_CHAIN) return "Serial: last OP only";
+        for(int i=0;i<FM_MAX_OPERATORS;++i) fm.operators[i].outputLevel=1;
+        FmSynth graph; fmInit(&graph,48000,&fm);
+        if(graph.outputLevels[d]==0) return "Not a carrier";
+    }
+    return "";
+}
+static SDL_Rect routingNodeRect(const FmSynth *graph,int op)
+{
+    int depth[FM_MAX_OPERATORS]={0},counts[FM_MAX_OPERATORS]={0},maxDepth=0;
+    for(int i=0;i<graph->operatorCount;++i) {
+        for(int j=0;j<i;++j) if(graph->routing[j][i]>0 && depth[j]+1>depth[i]) depth[i]=depth[j]+1;
+        ++counts[depth[i]]; if(depth[i]>maxDepth) maxDepth=depth[i];
+    }
+    int rank=0; for(int i=0;i<op;++i) if(depth[i]==depth[op]) ++rank;
+    int y=counts[depth[op]]==1 ? 447 : 327+rank*240/(counts[depth[op]]-1);
+    return (SDL_Rect){120+(maxDepth ? depth[op]*690/maxDepth : 340),y-17,84,34};
+}
+static void routingArrow(SDL_Renderer *r,int x1,int y1,int x2,int y2)
+{
+    SDL_RenderDrawLine(r,x1,y1,x2,y2);
+    double a=atan2(y2-y1,x2-x1);
+    SDL_RenderDrawLine(r,x2,y2,x2-(int)(10*cos(a-.45)),y2-(int)(10*sin(a-.45)));
+    SDL_RenderDrawLine(r,x2,y2,x2-(int)(10*cos(a+.45)),y2-(int)(10*sin(a+.45)));
+}
+static void drawRoutingDiagram(Spectrogram *view,const FmSynth *graph)
+{
+    SDL_Renderer *r=view->renderer; int selected=view->selectedOperator;
+    SDL_Rect panel={100,300,940,285};
+    SDL_SetRenderDrawColor(r,18,28,40,255); SDL_RenderFillRect(r,&panel);
+    for(int i=0;i<graph->operatorCount;++i) for(int j=i+1;j<graph->operatorCount;++j) if(graph->routing[i][j]>0) {
+        SDL_Rect from=routingNodeRect(graph,i),to=routingNodeRect(graph,j);
+        bool highlight=i==selected || j==selected;
+        SDL_SetRenderDrawColor(r,highlight ? 92 : 45,highlight ? 205 : 90,highlight ? 250 : 127,255);
+        routingArrow(r,from.x+from.w,from.y+17,to.x,to.y+17);
+    }
+    SDL_Rect mix={940,430,84,34};
+    for(int i=0;i<graph->operatorCount;++i) {
+        SDL_Rect node=routingNodeRect(graph,i);
+        if(graph->outputLevels[i]>0) {
+            SDL_SetRenderDrawColor(r,i==selected ? 255 : 173,i==selected ? 215 : 143,75,255);
+            SDL_RenderDrawLine(r,node.x+node.w,node.y+17,920,node.y+17);
+            SDL_RenderDrawLine(r,920,node.y+17,920,447);
+            routingArrow(r,920,447,mix.x,447);
+        }
+        if(graph->operators[i].config.feedback>0) {
+            SDL_SetRenderDrawColor(r,230,130,194,255);
+            int x=node.x+node.w,y=node.y+17;
+            int px=x,py=y+10;
+            for(int step=0;step<=20;++step) {
+                double angle=2.6-step*5.2/20;
+                int nx=x+17+(int)(20*cos(angle)),ny=y+(int)(20*sin(angle));
+                SDL_RenderDrawLine(r,px,py,nx,ny); px=nx; py=ny;
+            }
+            routingArrow(r,px,py,x,y-10);
+        }
+    }
+    for(int i=0;i<graph->operatorCount;++i) {
+        SDL_Rect node=routingNodeRect(graph,i);
+        SDL_SetRenderDrawColor(r,graph->outputLevels[i]>0 ? 83 : 29,graph->outputLevels[i]>0 ? 64 : 64,graph->outputLevels[i]>0 ? 35 : 85,255);
+        SDL_RenderFillRect(r,&node);
+        SDL_SetRenderDrawColor(r,i==selected ? 240 : 100,i==selected ? 245 : 130,i==selected ? 250 : 156,255);
+        SDL_RenderDrawRect(r,&node);
+        if(i==selected) { SDL_Rect outer={node.x-2,node.y-2,node.w+4,node.h+4}; SDL_RenderDrawRect(r,&outer); }
+        SDL_SetRenderDrawColor(r,225,236,247,255);
+        char label[20]; snprintf(label,sizeof(label),"OP%d",i+1); text(view,node.x+22,node.y+5,label);
+    }
+    button(view,mix,"MIX",false);
+}
+
+static void drawRouting(Spectrogram *view)
+{
+    FmConfig *fm=&view->config.layers[view->selectedLayer].fm;
+    int d=view->selectedOperator; FmSynth graph; fmInit(&graph,48000,fm);
+    char label[256]; SDL_Renderer *r=view->renderer;
+    SDL_SetRenderDrawColor(r,101,218,233,255); textScaled(view,100,95,"FM routing",3);
+    for(int i=0;i<2;++i) {
+        int x=100+i*480;
+        button(view,(SDL_Rect){x,130,38,38},"-",false);
+        snprintf(label,sizeof(label),i ? "Destination OP %d" : "Layer %d",i ? d+1 : view->selectedLayer+1);
+        SDL_SetRenderDrawColor(r,232,239,249,255); text(view,x+55,137,label);
+        button(view,(SDL_Rect){x+330,130,38,38},"+",false);
+    }
+    if(sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES) button(view,(SDL_Rect){1100,130,240,38},"Switch to FM",false);
+    for(int i=0;i<FM_ALGORITHM_COUNT;++i) {
+        if(routingReason(view,40)[0]) disabledButton(view,algorithmRect(i),fmAlgorithmName((FmAlgorithm)i));
+        else button(view,algorithmRect(i),fmAlgorithmName((FmAlgorithm)i),fm->algorithm==(FmAlgorithm)i);
+    }
+    drawRoutingDiagram(view,&graph);
+    for(int i=0;i<9;++i) {
+        int row=30+i; SDL_Rect rect=routingKnobRect(i); const char *reason=routingReason(view,row);
+        double value=i==0 ? (fm->algorithm==FM_ALGORITHM_CHAIN ? graph.outputLevels[d] : fm->operators[d].outputLevel) : i==1 ? fm->operators[d].feedback :
+            i-2<d ? (fm->algorithm==FM_ALGORITHM_CUSTOM ? fm->routing[i-2][d] : graph.routing[i-2][d]) : 0;
+        if(i==0) strcpy(label,"Audible output"); else if(i==1) strcpy(label,"Feedback"); else snprintf(label,sizeof(label),"From OP %d",i-1);
+        SDL_SetRenderDrawColor(r,180,199,219,255); text(view,rect.x+10,rect.y,label);
+        int cx=rect.x+rect.w/2,cy=rect.y+52;
+        SDL_SetRenderDrawColor(r,44,61,80,255); circle(r,cx,cy,29);
+        SDL_SetRenderDrawColor(r,reason[0] ? 65 : 29,reason[0] ? 75 : 140,100,255); circle(r,cx,cy,24);
+        double angle=(135+270*value/(i==1 ? 8 : 1))*3.141592653589793/180;
+        SDL_SetRenderDrawColor(r,reason[0] ? 110 : 231,reason[0] ? 125 : 241,reason[0] ? 140 : 252,255);
+        SDL_RenderDrawLine(r,cx,cy,cx+(int)(cos(angle)*21),cy+(int)(sin(angle)*21));
+        snprintf(label,sizeof(label),"%.3f",value); text(view,rect.x+(rect.w-(int)strlen(label)*12)/2,rect.y+84,label);
+        if(reason[0]) text(view,rect.x,rect.y+112,i>=2 && strstr(reason,"Earlier") ? "Earlier OPs only" : i>=2 && strstr(reason,"Custom") ? "Fixed by algorithm" : i>=2 && strstr(reason,"Sample") ? "Sample mode" : reason);
+    }
+    SDL_SetRenderDrawColor(r,92,205,250,255); text(view,1060,455,"Blue: modulation");
+    SDL_SetRenderDrawColor(r,230,194,110,255); text(view,1060,486,"Gold: to audio mix");
+    SDL_SetRenderDrawColor(r,230,130,194,255); text(view,1060,517,"Pink: self-feedback");
+    SDL_SetRenderDrawColor(r,210,225,240,255);
+    snprintf(label,sizeof(label),"OP%d: ratio %.2f / depth %.2f",d+1,fm->operators[d].ratio,fm->operators[d].rm);
+    text(view,1060,553,label);
+    snprintf(label,sizeof(label),"Connections INTO OP%d - select an operator in the diagram to edit it",d+1); text(view,100,590,label);
+    text(view,100,755,"Arrows show signal direction. White border selects controls. Shift-drag for fine adjustment.");
+}
+static int routingControls(Spectrogram *view,int x,int y,bool click,double wheel)
+{
+    if(click && inside(x,y,(SDL_Rect){1100,130,240,38}) && sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES)
+        return sdlSynthSetSourceMode(SYNTH_SOURCE_FM)==0 ? 1 : -1;
+    for(int i=0;i<2;++i) {
+        int x0=100+i*480;
+        if(click && (inside(x,y,(SDL_Rect){x0,130,38,38}) || inside(x,y,(SDL_Rect){x0+330,130,38,38})))
+            return changeRow(view,i ? 5 : 1,x<x0+38 ? -1 : 1)<0 ? -1 : 1;
+    }
+    FmSynth topology; fmInit(&topology,48000,&view->config.layers[view->selectedLayer].fm);
+    for(int i=0;i<topology.operatorCount;++i) if(click && inside(x,y,routingNodeRect(&topology,i))) {
+        view->selectedOperator=i; return 1;
+    }
+    for(int i=0;i<FM_ALGORITHM_COUNT;++i) if(click && inside(x,y,algorithmRect(i)))
+        return changeRow(view,40,(double)i-(double)view->config.layers[view->selectedLayer].fm.algorithm)<0 ? -1 : 1;
+    for(int i=0;i<9;++i) if(inside(x,y,routingKnobRect(i))) {
+        if(routingReason(view,30+i)[0]) return 1;
+        if(wheel) return changeRow(view,30+i,wheel*((SDL_GetModState()&KMOD_SHIFT) ? .1 : 1))<0 ? -1 : 1;
+        if(click) { view->dragRow=30+i; view->dragY=y; SDL_CaptureMouse(SDL_TRUE); }
+        return 1;
+    }
+    return 1;
+}
+
 static void drawEquations(Spectrogram *view)
 {
     button(view, soundPageButton, "Back to sound", false);
@@ -792,6 +1005,8 @@ static void drawEquations(Spectrogram *view)
     button(view, (SDL_Rect){860,20,225,42}, "Effects", view->equationPage == 3);
     button(view, (SDL_Rect){1120,20,225,42}, "MIDI player", view->equationPage == 4);
     button(view,(SDL_Rect){1380,20,180,42},"Samples",view->equationPage==5);
+    button(view,routingNavButton,"FM routing",view->equationPage==6);
+    if(view->equationPage==6) { drawRouting(view); return; }
     if (view->equationPage==5) { drawSamples(view); return; }
     if (view->equationPage == 4) {
         SDL_SetRenderDrawColor(view->renderer, 101,218,233,255);
@@ -893,7 +1108,8 @@ static void drawControls(Spectrogram *view)
     else disabledButton(view,deletePresetButton,"Delete setting");
     button(view, effectsPageButton, "Effects", false);
     button(view, midiPageButton, "MIDI player", false);
-    button(view, samplesPageButton, sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES ? "Samples (active)" : "Samples", false);
+    button(view, samplesPageButton, sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES ? "Samples: on" : "Samples", false);
+    button(view,routingPageButton,"FM routing",false);
     if (view->presetOpen) {
         for (int i = 0; i < PRESET_VISIBLE && view->presetScroll + i < view->library.count; ++i) {
             int preset = view->presetScroll + i;
@@ -1171,6 +1387,10 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         if (!wheelDelta) return 0;
         direction = wheelDelta > 0 ? 1 : -1;
     } else return 0;
+    if(click && ((view->equationPage && inside(x,y,routingNavButton)) ||
+       (!view->equationPage && !view->presetOpen && inside(x,y,routingPageButton)))) {
+        endSampleEdit(view); view->equationPage=6; return 1;
+    }
     if (view->equationPage && click && y<70) endSampleEdit(view);
     if (view->equationPage && click && inside(x,y,(SDL_Rect){1380,20,180,42})) {
         view->equationPage=5; return 1;
@@ -1184,6 +1404,7 @@ int spectrogramEvent(Spectrogram *view, const SDL_Event *event)
         if (click && inside(x, y, (SDL_Rect){600,20,225,42})) { view->equationPage = 2; view->equationScroll = 0; return 1; }
         if (click && inside(x, y, (SDL_Rect){860,20,225,42})) { view->equationPage = 3; return 1; }
         if (click && inside(x,y,(SDL_Rect){1120,20,225,42})) { view->equationPage=4; return 1; }
+        if(view->equationPage==6) return routingControls(view,x,y,click,wheelDelta);
         if (view->equationPage==5) return sampleControls(view,x,y,click,direction);
         if (view->equationPage == 4) {
             if (click && inside(x,y,midiBrowseButton)) {

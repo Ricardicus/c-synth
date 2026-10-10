@@ -3,3 +3,6 @@
 **DS_Store
 
 /presets/
+
+# Independent plugin repository, with its own dependency history.
+/logic-plugin/

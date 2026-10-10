@@ -35,6 +35,11 @@ git submodule update --init --recursive
 Or clone with `git clone --recurse-submodules <this-repository-url>`.
 CMake builds the checked-out library before linking the app; it doesn't download
 or update the dependency. Git records the exact library commit in this repository.
+
+The Logic plugin is a separate repository in `logic-plugin/`, with its own
+libcsynth submodule. Publish library changes upstream, then update each frontend's
+submodule when ready. The plugin folder is excluded from this repository.
+
 To update it later, use `git submodule update --remote libcsynth`, test the build,
 and commit the updated submodule pointer.
 
@@ -91,7 +96,7 @@ click one entry to replace the complete sound. Up/Down, Home/End and Enter also
 select an entry while the list is open; Escape or an outside click dismisses it.
 The **<** and **>** buttons beside the dropdown select the previous or next
 preset, including saved settings, and wrap around at the ends of the list.
-The factory bank contains **64 presets**. The original 13 sounds are followed by
+The factory bank contains **72 presets**. The original 13 sounds are followed by
 families of flutes, reeds/brass, keys, bells, basses, leads, pads, plucks, and effects.
 Flutes include Concert, Alto, Bass, Piccolo, Bamboo, Pan, and Dream variations,
 with different FM brightness, breath levels, vibrato, articulation, and ambience.
@@ -358,3 +363,33 @@ command-line defaults and validation, mixed audio snapshots and note release,
 and FFT frequency/amplitude scaling. An application regression test injects
 SDL backend touch warnings to verify that keyboard input, rendering, and
 quit still work. Audio and application integration tests use SDL's dummy drivers.
+
+## FM routing in the SDL window
+
+Click **FM routing** beside Samples. Choose a layer and destination operator
+with the +/- buttons. The six algorithm buttons select Serial chain, Parallel
+pairs, Modulators to carrier, Shared modulator, Additive carriers, or Custom
+graph. Active layer/operator counts and oscillator settings stay on the main
+sound view.
+
+**Audible output** mixes the selected operator into the carrier output when
+that algorithm permits it. **Feedback** adds delayed frequency feedback from
+that operator's previous sample. The seven **From OP** knobs edit incoming
+connections in Custom graph mode; only earlier operators may feed the selected
+destination. Source FM depth and its index envelope set the modulation amount.
+The interactive diagram shows blue modulation arrows, gold paths to the audio
+mix, and pink self-feedback loops. Click an operator to select its knobs; a
+white border marks the selection, and its modulation paths are highlighted.
+Fixed-algorithm
+connections appear on their disabled knobs, with an explanation.
+
+Drag or scroll knobs to edit live; Shift gives finer adjustments. Serial
+chain fixes its output for compatibility. Sample mode disables FM controls
+and offers **Switch to FM**. Master ADSR, filters and effects remain shared.
+**Save setting** stores algorithms, connections, levels and feedback in v3
+`.synth` files; old v1/v2 settings still load as serial chains.
+
+The eight Graph presets are included among the 72 factory sounds. The FM
+equation view displays their connections and delayed feedback. See
+[libcsynth's routing documentation](libcsynth/README.md#fm-routing-and-feedback)
+for the equations, normalization, and API.

@@ -1,6 +1,3 @@
 [submodule "libcsynth"]
 	path = libcsynth
 	url = https://github.com/Ricardicus/libcsynth.git
-[submodule "logic-plugin/libcsynth"]
-	path = logic-plugin/libcsynth
-	url = https://github.com/Ricardicus/libcsynth.git

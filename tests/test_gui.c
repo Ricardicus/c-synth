@@ -57,8 +57,8 @@ int main(void)
     CHECK(v->presetScroll == SYNTH_PRESET_COUNT - PRESET_VISIBLE);
     click(v, 100, PRESET_LIST_Y + 7 * PRESET_ITEM_H + 10);
     CHECK(v->preset == SYNTH_PRESET_COUNT - 1 && !v->presetOpen);
-    CHECK(!strcmp(presetName(v, v->preset), "FX Starfall"));
-    CHECK(v->config.layers[0].fm.operatorCount == 3);
+    CHECK(!strcmp(presetName(v, v->preset), "Graph Orbit Texture"));
+    CHECK(v->config.layers[0].fm.operatorCount == 8);
     /* Adjacent arrows step through the same library and wrap at either end. */
     click(v, 555, 25);
     CHECK(v->preset == 0);
@@ -180,6 +180,13 @@ int main(void)
     functions = (EquationLines){0};
     outputFunctions(v, &functions);
     for (int i = 0; i < functions.count; ++i) CHECK(strstr(functions.lines[i], "/0.00") == NULL);
+    SynthConfig graphPatch=synthPresetConfig(68);
+    spectrogramSetConfig(v,&graphPatch); functions=(EquationLines){0}; fmFunctions(v,&functions);
+    CHECK(strstr(functions.lines[0],"dt = 1.00 / sampleRate"));
+    bool feedbackFunction=false;
+    for (int i=0;i<functions.count;++i) feedbackFunction |= strstr(functions.lines[i],"y1_1[n-1]")!=NULL;
+    CHECK(feedbackFunction);
+    spectrogramSetConfig(v,&raw);
     /* Equation views are readable pages, and Escape returns without quitting. */
     click(v, 795, 25);
     CHECK(v->equationPage == 4);
@@ -307,10 +314,76 @@ int main(void)
     CHECK(changeRow(v,28,1)==0 && sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES);
     CHECK(changeRow(v,29,1)==0 && sdlSynthGetSourceMode()==SYNTH_SOURCE_SAMPLES);
     CHECK(remove(wavePath)==0 && remove(mapPath)==0);
+    /* FM routing dispatch, sample-mode explanations, and saved graph settings. */
+    SynthConfig routed=synthPresetConfig(64);
+    spectrogramSetConfig(v,&routed); CHECK(sdlSynthConfigure(&routed)==0);
+    click(v,820,75); CHECK(v->equationPage==6); CHECK(spectrogramDraw(v)==0);
+    click(v,1100,255); CHECK(v->config.layers[0].fm.algorithm==FM_ALGORITHM_PAIRS);
+    CHECK(strstr(routingReason(v,31),"Sample mode"));
+    click(v,1120,145); CHECK(sdlSynthGetSourceMode()==SYNTH_SOURCE_FM);
+    click(v,1100,255); CHECK(v->config.layers[0].fm.algorithm==FM_ALGORITHM_CUSTOM);
+    click(v,920,145); click(v,920,145); CHECK(v->selectedOperator==2);
+    const int routingIndices[]={2,1,0};
+    for(int i=0;i<3;++i) {
+        SDL_Rect knob=routingKnobRect(routingIndices[i]); int cx=knob.x+knob.w/2,cy=knob.y+52;
+        click(v,cx,cy); CHECK(v->dragRow>=30);
+        e=(SDL_Event){0}; e.type=SDL_MOUSEMOTION; e.motion.y=cy-40;
+        CHECK(spectrogramEvent(v,&e)==1);
+        e.type=SDL_MOUSEBUTTONUP; e.button.button=SDL_BUTTON_LEFT; CHECK(spectrogramEvent(v,&e)==1);
+    }
+    CHECK(fabs(v->config.layers[0].fm.routing[0][2]-.1)<1e-9);
+    CHECK(fabs(v->config.layers[0].fm.operators[2].feedback-.1)<1e-9);
+    CHECK(fabs(v->config.layers[0].fm.operators[2].outputLevel-.1)<1e-9);
+    SDL_Rect inputKnob=routingKnobRect(2);
+    click(v,inputKnob.x+inputKnob.w/2,inputKnob.y+52); SDL_SetModState(KMOD_SHIFT);
+    e.type=SDL_MOUSEMOTION; e.motion.y=inputKnob.y+48; CHECK(spectrogramEvent(v,&e)==1);
+    CHECK(fabs(v->config.layers[0].fm.routing[0][2]-.101)<1e-9);
+    SDL_SetModState(KMOD_NONE); e.type=SDL_MOUSEBUTTONUP; e.button.button=SDL_BUTTON_LEFT;
+    CHECK(spectrogramEvent(v,&e)==1);
+    FmSynth diagram; CHECK(fmInit(&diagram,48000,&v->config.layers[0].fm)==0);
+    SDL_Rect sourceNode=routingNodeRect(&diagram,0);
+    click(v,sourceNode.x+20,sourceNode.y+10); CHECK(v->selectedOperator==0);
+    click(v,inputKnob.x+inputKnob.w/2,inputKnob.y+52); CHECK(v->dragRow==-1 && v->config.layers[0].fm.routing[0][0]==0);
+    SDL_Rect outputKnob=routingKnobRect(0),feedbackKnob=routingKnobRect(1);
+    click(v,outputKnob.x+outputKnob.w/2,outputKnob.y+52); CHECK(v->dragRow==30);
+    e.type=SDL_MOUSEBUTTONUP; e.button.button=SDL_BUTTON_LEFT; CHECK(spectrogramEvent(v,&e)==1);
+    char graphPath[1024],graphName[PRESET_NAME_MAX+1]; SynthConfig loadedGraph;
+    snprintf(graphPath,sizeof(graphPath),"%s/routing.synth",presetFolder);
+    CHECK(presetWrite(graphPath,"Routing test",&v->config,issue,sizeof(issue))==0);
+    CHECK(presetRead(graphPath,graphName,&loadedGraph,issue,sizeof(issue))==0);
+    CHECK(loadedGraph.layers[0].fm.algorithm==FM_ALGORITHM_CUSTOM);
+    CHECK(loadedGraph.layers[0].fm.routing[0][2]==v->config.layers[0].fm.routing[0][2]);
+    CHECK(loadedGraph.layers[0].fm.operators[2].feedback==v->config.layers[0].fm.operators[2].feedback);
+    CHECK(remove(graphPath)==0);
+    for(int mode=0;mode<FM_ALGORITHM_COUNT;++mode) {
+        SDL_Rect rect=algorithmRect(mode); click(v,rect.x+10,rect.y+10);
+        CHECK(v->config.layers[0].fm.algorithm==(FmAlgorithm)mode);
+        CHECK(spectrogramDraw(v)==0);
+    }
+    /* Every algorithm has clickable, non-overlapping operator nodes at all sizes. */
+    for(int mode=0;mode<FM_ALGORITHM_COUNT;++mode) for(int count=1;count<=8;++count) {
+        SynthConfig layout=synthDefaultConfig(); layout.layers[0].fm.algorithm=(FmAlgorithm)mode;
+        layout.layers[0].fm.operatorCount=count; spectrogramSetConfig(v,&layout); CHECK(sdlSynthConfigure(&layout)==0);
+        CHECK(fmInit(&diagram,48000,&layout.layers[0].fm)==0);
+        for(int op=0;op<count;++op) {
+            SDL_Rect node=routingNodeRect(&diagram,op); CHECK(node.x>=100 && node.x+node.w<=1040 && node.y>=300 && node.y+node.h<=585);
+            click(v,node.x+20,node.y+10); CHECK(v->selectedOperator==op);
+        }
+        CHECK(spectrogramDraw(v)==0);
+    }
+    click(v,110,200); CHECK(v->config.layers[0].fm.algorithm==FM_ALGORITHM_CHAIN);
+    click(v,outputKnob.x+outputKnob.w/2,outputKnob.y+52); CHECK(v->dragRow==-1); /* Legacy output is fixed. */
+    click(v,feedbackKnob.x+feedbackKnob.w/2,feedbackKnob.y+52); CHECK(v->dragRow==31); /* Carrier feedback is still available. */
+    e.type=SDL_MOUSEBUTTONUP; e.button.button=SDL_BUTTON_LEFT; CHECK(spectrogramEvent(v,&e)==1);
+    e.type=SDL_KEYDOWN; e.key.keysym.sym=SDLK_ESCAPE; CHECK(spectrogramEvent(v,&e)==1 && v->equationPage==0);
     if (getenv("GUI_CAPTURE")) {
         SDL_SetWindowSize(w, 1640, 780);
         SDL_PumpEvents();
         v->equationPage = atoi(getenv("GUI_CAPTURE"));
+        if(v->equationPage==6) {
+            SynthConfig picture=synthPresetConfig(69); picture.layers[0].fm.operators[2].feedback=.3;
+            spectrogramSetConfig(v,&picture); CHECK(sdlSynthConfigure(&picture)==0); v->selectedOperator=2;
+        }
         CHECK(spectrogramDraw(v) == 0);
         SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, 1640, 780, 32, SDL_PIXELFORMAT_ARGB8888);
         CHECK(surface != NULL);
